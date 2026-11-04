@@ -1,0 +1,13 @@
+name = "MultipleShootingV2"
+uuid = "cf5c616b-dc67-45c6-b656-591e58e93453"
+version = "0.1.0"
+
+[deps]
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+NKRoots = "a8d363ce-860c-11ea-26b8-f7d5a45d10c5"
+
+[compat]
+julia = "1.10"
+
+[sources]
+NKRoots = {path = "../NKRoots.jl"}
