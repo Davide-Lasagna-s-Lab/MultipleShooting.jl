@@ -5,10 +5,24 @@
 #               advance the whole array at once
 #     sliced    a vector of states, each an array of any shape, advanced one at a time
 #
-# Besides broadcasting, these are the only operations the code makes on a batch.
+# The bases of the subspace iteration are k batches like the seeds, one per direction. Besides
+# broadcasting, these are the only operations the code makes on a batch.
 
+"""
+    Batched
+
+A batch in the batched layout: an array of numbers whose last dimension runs over the states. A
+propagator dispatches on it to advance all the states at once.
+"""
 const Batched = AbstractArray{<:Number}
-const Sliced  = AbstractVector{<:AbstractArray}
+
+"""
+    Sliced
+
+A batch in the sliced layout: a vector of states, each an array of any shape. A propagator
+dispatches on it to advance the states one at a time.
+"""
+const Sliced = AbstractVector{<:AbstractArray}
 
 """
     nsegments(X)
@@ -19,23 +33,33 @@ sliced.
 nsegments(X::Batched) = size(X, ndims(X))
 nsegments(X::Sliced)  = length(X)
 
-# a copy, and a batch of the same layout with its entries not set
+# a copy, and a batch of the same layout with its entries not set, or random
 _copy(X::Batched) = copy(X)
 _copy(X::Sliced)  = map(copy, X)
 
 _similar(X::Batched) = similar(X)
 _similar(X::Sliced)  = map(similar, X)
 
-# the first and the last state of a batch, as batches of one state, without a copy
+_randn!(X::Batched) = randn!(X)
+_randn!(X::Sliced)  = (foreach(randn!, X); X)
+
+# the first and the last state of a batch, as a batch of one state, without a copy: the first
+# seed, and the end of the last segment
 _head(X::Batched) = selectdim(X, ndims(X), 1:1)
 _head(X::Sliced)  = view(X, 1:1)
 
-_tail(X::Batched) = selectdim(X, ndims(X), size(X, ndims(X)):size(X, ndims(X)))
+_tail(X::Batched) = selectdim(X, ndims(X), nsegments(X):nsegments(X))
 _tail(X::Sliced)  = view(X, lastindex(X):lastindex(X))
 
 # the inner product of two batches, the sum over their states
 _dot(X::Batched, Y::Batched) = dot(X, Y)
 _dot(X::Sliced, Y::Sliced)   = sum(i -> dot(X[i], Y[i]), eachindex(X))
+
+# the inner products of the states of two batches, one per state: batched, an array whose last
+# dimension runs over the states and the others have size one, so that it broadcasts against a
+# batch; sliced, a vector
+_dots(X::Batched, Y::Batched) = sum(X .* Y; dims=1:ndims(X) - 1)
+_dots(X::Sliced, Y::Sliced)   = map(dot, X, Y)
 
 # dest ← src, the data of the states: copying a vector of states with .= would copy the references
 _copyto!(dest::Batched, src::Batched) = copyto!(dest, src)
@@ -58,8 +82,8 @@ end
 #     X = (x₁, x₂, x₃)   →   X = (x₃, x₁, x₂)
 #
 # In multiple shooting this puts the end of each segment in the row of the seed it has to reach.
-# Batched, by three reversals along the last dimension, the first of length one; sliced, by a
-# permutation of the states, which moves no data
+# Batched, by two reversals along the last dimension: all of it, then all but the first slot;
+# sliced, by a permutation of the states, which moves no data
 function _roll!(X::Batched)
     d = ndims(X)
     reverse!(X; dims=d)

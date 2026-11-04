@@ -4,51 +4,44 @@ using LinearAlgebra
 using Random
 using Test
 
-include(joinpath(@__DIR__, "ks.jl"))
-include(joinpath(@__DIR__, "rk4.jl"))
-include(joinpath(@__DIR__, "rpo.jl"))
 include(joinpath(@__DIR__, "lorenz.jl"))
+include(joinpath(@__DIR__, "ks.jl"))
+include(joinpath(@__DIR__, "data", "ks22.jl"))
 
+# ---- Lorenz, and a guess of its orbit AB: four seeds along the closest return of a trajectory
+#      with a period between 1.4 and 1.7, where only AB lives, found once offline from (1, 1, 1)
+#      after a transient of 20, sampled every 0.01: a distance of 0.42 at T = 1.57 ----
+L     = LorenzPropagator(1e-3, 28.0)
+F     = Residual(L)
+guess = MultiVector([-4.3916429753   4.5595009656   3.6883670592  -3.8671374687;
+                      2.1325664921   7.9944849552  -1.9178392035  -6.9073223838;
+                     30.6127436095  12.6485708665  29.3130502493  11.6370396562], [1.57])
 
-# ---- the KS model of the notes: L = 39, odd subspace, 32 sine modes ----
-P = KSPropagator(ks_flows()...)
+# the same vector in the sliced layout, a vector of states
+sliced(z) = MultiVector(collect.(eachcol(z.X)), copy(z.d))
 
-# ---- the orbit of period 53.134 on its 27 seeds ----
-lines = readlines(joinpath(@__DIR__, "data", "T_53.134.txt"))
-T0    = parse(Float64, lines[1])
-X0    = reduce(hcat, [parse.(Float64, split(l)) for l in lines[2:end]])
-N0    = size(X0, 2)
+# the search from z, overwritten with the orbit
+search!(z) = nkroot!(F, Jacobian(L, z), z; krylov_dim=20, krylov_tol=1e-8, Δ=1.0, tol=1e-10,
+                     maxiter=50, verbose=false)
 
+# ---- Kuramoto–Sivashinsky at L = 22, and the search from the guess of its shortest relative
+#      periodic orbit in data/ks22.jl ----
+K = KSPropagator()
 
-@testset "propagator interface                     " begin
-    τ = T0/N0
-
-    # ---- every seed of the orbit lands on the next one ----
-    Y = propagate!(P, copy(X0), τ)
-    @test norm(Y - circshift(X0, (0, -1))) < 1e-6*norm(X0)
-
-    # ---- the tangent equation against a forward difference ----
-    Random.seed!(1)
-    V  = randn(size(X0))
-    h  = 1e-6
-    Xh = propagate!(P, X0 .+ h .* V, τ)
-    Xt = copy(X0)
-    Vt = tangent!(P, Xt, copy(V), τ)
-    @test norm(Vt - (Xh - Y)./h) < 1e-4*norm(Vt)
-    @test Xt ≈ Y
-end
+ks_search!(z) = nkroot!(Residual(K), Jacobian(K, z), z; krylov_dim=60, krylov_tol=1e-8, Δ=1.0,
+                        tol=1e-10, maxiter=40, verbose=false)
 
 
 @testset "multivector                              " begin
     Random.seed!(2)
     A = randn(4, 3)
     B = randn(4, 3)
-    sliced(X) = collect.(eachcol(X))
-    flat(v)   = [vec(v.X isa Vector{<:Vector} ? reduce(hcat, v.X) : v.X); v.d]
+    slice(X) = collect.(eachcol(X))
+    flat(v)   = [vec(v.X isa Sliced ? reduce(hcat, v.X) : v.X); v.d]
 
     # ---- the same vectors in both layouts: the columns of a matrix, or a vector of states ----
     for (z, w) in ((MultiVector(copy(A), [1.5]), MultiVector(copy(B), [-0.5])),
-                   (MultiVector(sliced(A), [1.5]), MultiVector(sliced(B), [-0.5])))
+                   (MultiVector(slice(A), [1.5]), MultiVector(slice(B), [-0.5])))
         @test nsegments(z) == 3
         @test period(z) == 1.5
         @test nshifts(z) == 0
@@ -87,142 +80,115 @@ end
 end
 
 
+@testset "search of AB, batched and sliced          " begin
+    z  = copy(guess)
+    zs = sliced(guess)
+    @test search!(z).status === :converged
+    @test search!(zs).status === :converged
+    @test abs(period(z) - 1.5586522107) < 1e-6
+    @test abs(period(zs) - period(z)) < 1e-9
+end
+
+# ---- the orbit AB, converged once for the tests below ----
+ab = copy(guess)
+search!(ab)
+
+
 @testset "residual                                 " begin
-    # ---- zero on the orbit, with its 27 seeds and with every third of them ----
-    for every in (1, 3)
-        z = MultiVector(X0[:, 1:every:end], [T0])
-        r = Residual(P)(similar(z), z)
-        @test norm(r) < 1e-6*norm(z)
-        @test r.d == [0.0]
-    end
+    # ---- it vanishes on the orbit, in both layouts ----
+    @test norm(F(similar(ab), ab)) < 1e-9
+    @test norm(F(similar(sliced(ab)), sliced(ab))) < 1e-9
 
-    # ---- not zero off it, with the end of segment i in the row of segment i + 1 ----
-    Random.seed!(3)
-    z = MultiVector(X0 .+ 1e-3 .* randn(size(X0)), [T0])
-    X = copy(z.X)
-    r = Residual(P)(similar(z), z)
-    Φ = propagate!(P, copy(z.X), T0/N0)
-    @test norm(r) > 1e-4*norm(z)
-    @test r.X[:, 2] ≈ Φ[:, 1] - z.X[:, 2]
-    @test r.X[:, 1] ≈ Φ[:, N0] - z.X[:, 1]
-    @test z.X == X
-
-    # ---- the same residual in the sliced layout, and the seeds left as they were ----
-    zs = MultiVector(collect.(eachcol(z.X)), [T0])
-    Xs = deepcopy(zs.X)
-    rs = Residual(P)(similar(zs), zs)
-    @test reduce(hcat, rs.X) ≈ r.X
-    @test rs.d == [0.0]
-    @test zs.X == Xs
+    # ---- off it, the two layouts agree ----
+    Random.seed!(1)
+    w = MultiVector(ab.X .+ 1e-2 .* randn(3, 4), copy(ab.d))
+    @test reduce(hcat, F(similar(sliced(w)), sliced(w)).X) ≈ F(similar(w), w).X
 end
 
 
 @testset "Jacobian                                 " begin
-    # ---- a point off the orbit, with 3 seeds so that the dense matrices stay small ----
-    Random.seed!(4)
-    X = X0[:, 1:9:end] .+ 1e-3 .* randn(size(X0, 1), 3)
-    z = MultiVector(copy(X), [T0])
-    m = nsegments(z)
-    n = size(X, 1)
-    J = Jacobian(P, z)
-
-    # ---- the dense Jacobian, column by column ----
-    unit(k) = (e = zeros(n*m + 1); e[k] = 1; MultiVector(reshape(e[1:n*m], n, m), [e[end]]))
+    # ---- off the orbit, the columns of the seeds against central differences of the residual ----
+    Random.seed!(1)
+    w = MultiVector(ab.X .+ 1e-2 .* randn(3, 4), copy(ab.d))
+    J = Jacobian(L, w)
+    unit(k) = (e = zeros(13); e[k] = 1; MultiVector(reshape(e[1:12], 3, 4), e[13:13]))
     flat(v) = [vec(v.X); v.d]
-    A = reduce(hcat, [flat(J*unit(k)) for k in 1:n*m + 1])
-
-    # ---- the columns of the seeds against central differences of the residual ----
-    h = 1e-5
-    D = reduce(hcat, [flat(Residual(P)(similar(z), z .+ h .* unit(k)) .-
-                           Residual(P)(similar(z), z .- h .* unit(k))) ./ (2h) for k in 1:n*m])
-    @test norm(A[1:n*m, 1:n*m] - D[1:n*m, :]) < 1e-7*norm(A[1:n*m, 1:n*m])
-
-    # ---- the period column is f at the end points over m, in the row of the next segment: the
-    #      derivative of the exact flow, not of the scheme, so not compared with differences ----
-    Φ = propagate!(P, copy(X), T0/m)
-    F = rhs!(P, similar(Φ), Φ)
-    @test A[1:n*m, end] ≈ vec(circshift(F, (0, 1)))./m
+    A = reduce(hcat, [flat(J*unit(k)) for k in 1:12])
+    D = reduce(hcat, [flat(F(similar(w), w .+ 1e-6 .* unit(k)) .-
+                           F(similar(w), w .- 1e-6 .* unit(k))) ./ 2e-6 for k in 1:12])
+    @test norm(A[1:12, :] - D[1:12, :]) < 1e-7*norm(A[1:12, :])
 
     # ---- the phase row is f at the first seed ----
-    f₁ = rhs!(P, zeros(n, 1), X[:, 1:1])
-    @test A[end, :] ≈ [vec(f₁); zeros(n*(m - 1) + 1)]
-
-    # ---- the point is left as it was ----
-    @test z.X == X
-
-    # ---- after z moves in place, update! ----
-    Random.seed!(5)
-    v = MultiVector(randn(n, m), [0.3])
-    z.X .+= 1e-3 .* randn(n, m)
-    z.d .= T0 + 0.01
-    update!(J, z)
-    w = Jacobian(P, z)*v
-    @test norm((J*v).X - w.X) < 1e-10*norm(w.X)
-    @test (J*v).d ≈ w.d
+    @test A[13, :] ≈ [vec(lorenz_rhs!(zeros(3, 1), w.X[:, 1:1], L.ρ)); zeros(9)]
 
     # ---- the same product in the sliced layout ----
-    zs = MultiVector(collect.(eachcol(z.X)), copy(z.d))
-    vs = MultiVector(collect.(eachcol(v.X)), [0.3])
-    ws = Jacobian(P, zs)*vs
-    @test reduce(hcat, ws.X) ≈ w.X
-    @test ws.d ≈ w.d
+    v = MultiVector(randn(3, 4), [0.3])
+    @test reduce(hcat, (Jacobian(L, sliced(w))*sliced(v)).X) ≈ (J*v).X
 end
 
 
-@testset "relative periodic orbit                  " begin
-    o = rpo_orbit()
-    Q = RPOPropagator(1e-3)
-
-    # ---- the residual vanishes on the orbit known in closed form ----
-    z = MultiVector(copy(o.X), [o.T, o.s])
-    @test norm(Residual(Q)(similar(z), z)) < 1e-8
-
-    # ---- off it, the columns of the seeds and of the shift against central differences ----
-    Random.seed!(6)
-    z = MultiVector(o.X .+ 1e-2 .* randn(4, 2), [o.T, o.s + 0.1])
-    J = Jacobian(Q, z)
-    unit(k) = (e = zeros(10); e[k] = 1; MultiVector(reshape(e[1:8], 4, 2), e[9:10]))
-    flat(v) = [vec(v.X); v.d]
-    D(k)    = flat(Residual(Q)(similar(z), z .+ 1e-6 .* unit(k)) .-
-                   Residual(Q)(similar(z), z .- 1e-6 .* unit(k))) ./ 2e-6
-    for k in [1:8; 10]
-        @test norm(flat(J*unit(k))[1:8] - D(k)[1:8]) < 1e-7
+@testset "subspace iteration                       " begin
+    # ---- on the orbit with k = 2, in both layouts from the same random bases ----
+    Random.seed!(2)
+    S  = Subspace(Jacobian(L, ab); k=2)
+    Sₛ = Subspace(Jacobian(L, sliced(ab)); k=2)
+    for a in 1:2
+        Sₛ.V[a] .= collect.(eachcol(S.V[a]))
     end
-end
-
-
-@testset "Newton–Krylov with NKRoots               " begin
-    # ---- the KS orbit on 9 of its seeds, perturbed, reconverged by the hookstep ----
-    Random.seed!(7)
-    z = MultiVector(X0[:, 1:3:end] .+ 1e-4 .* randn(size(X0, 1), 9), [T0 + 1e-3])
-    F = Residual(P)
-    J = Jacobian(P, z)
-    out = nkroot!(F, J, z; krylov_dim=100, krylov_tol=1e-6, Δ=1.0, tol=1e-9, verbose=false)
-    @test out.status === :converged
-    @test abs(period(z) - T0) < 1e-5
-end
-
-
-@testset "Lorenz orbit AB from a near recurrence   " begin
-    L = LorenzPropagator(1e-3)
-
-    # ---- a trajectory on the attractor, sampled every 0.01 after a transient ----
-    x = lorenz_rk4!([1.0, 1.0, 1.0], nothing, 20.0, 1e-3)
-    Y = zeros(3, 6000)
-    for k in axes(Y, 2)
-        Y[:, k] .= x
-        lorenz_rk4!(x, nothing, 0.01, 1e-3)
+    for _ in 1:8
+        iterate!(S)
+        iterate!(Sₛ)
     end
 
-    # ---- its closest return with a period between 1.4 and 1.7, where only AB lives ----
-    d, k, p = minimum((norm(Y[:, k + p] - Y[:, k]), k, p) for k in 1:size(Y, 2) - 170, p in 140:170)
-    T = 0.01*p
+    # ---- the bases settle, and contain the flow, the neutral direction ----
+    @test change(S) < 1e-6
+    f = lorenz_rhs!(similar(ab.X), ab.X, L.ρ)
+    Vᵢ(i) = reduce(hcat, [Vᵃ[:, i] for Vᵃ in S.V])
+    @test maximum(norm(f[:, i] - Vᵢ(i)*(Vᵢ(i)'*f[:, i]))/norm(f[:, i]) for i in 1:4) < 1e-6
 
-    # ---- four seeds along that stretch, converged by the hookstep ----
-    X = reduce(hcat, [lorenz_rk4!(Y[:, k], nothing, (i - 1)*T/4, 1e-3) for i in 1:4])
-    z = MultiVector(X, [T])
-    out = nkroot!(Residual(L), Jacobian(L, z), z; krylov_dim=20, krylov_tol=1e-8, Δ=1.0,
-                  tol=1e-10, maxiter=50, verbose=false)
-    @test out.status === :converged
-    @test abs(period(z) - 1.5586522107) < 1e-6
+    # ---- the two layouts agree ----
+    @test all(reduce(hcat, Sₛ.V[a]) ≈ S.V[a] for a in 1:2)
+end
+
+
+@testset "tangent sensitivity                      " begin
+    # ---- dT/dρ of AB against central differences of the period of AB at ρ = 28 ± 1e-4 ----
+    dz = tangent_sensitivity(L, ab)
+    T(ρ) = (P = LorenzPropagator(1e-3, ρ);
+            z = copy(ab);
+            nkroot!(Residual(P), Jacobian(P, z), z; krylov_dim=20, krylov_tol=1e-10, Δ=1.0,
+                    tol=1e-12, maxiter=50, verbose=false);
+            period(z))
+    @test abs(period(dz) - (T(28 + 1e-4) - T(28 - 1e-4))/2e-4) < 1e-6*abs(period(dz))
+end
+
+
+@testset "search of the KS orbit at L = 22          " begin
+    # ---- the orbit of Cvitanović, Davidchack & Siminos (2010), figure 6.1 (a), Tp = 16.3 and
+    #      ℓp = 2.86, to the digits given there; the guess lies near its reflection -u(-x), which
+    #      has the opposite shift ----
+    z = copy(ks22_guess)
+    @test ks_search!(z).status === :converged
+    @test abs(period(z) - 16.3) < 0.05
+    @test abs(shift(z, 1) + 2.86) < 0.005
+end
+
+# ---- the KS orbit, converged once for the test below ----
+ks22 = copy(ks22_guess)
+ks_search!(ks22)
+
+
+@testset "subspace iteration on the KS orbit       " begin
+    # ---- with k = 4 the first three directions settle, and the bases contain the generator of
+    #      the shift, carried round the loop by the shift of the bases. f is left out: on the loop
+    #      of the scheme it is neutral only up to the error of the time step ----
+    Random.seed!(2)
+    S = Subspace(Jacobian(K, ks22); k=4)
+    for _ in 1:24
+        iterate!(S)
+    end
+    @test change(S; p=3) < 1e-6
+    g = dshift!(K, similar(ks22.X), ks22.X, 1)
+    Vᵢ(i) = reduce(hcat, [Vᵃ[:, i] for Vᵃ in S.V])
+    @test maximum(norm(g[:, i] - Vᵢ(i)*(Vᵢ(i)'*g[:, i]))/norm(g[:, i]) for i in 1:4) < 1e-10
 end

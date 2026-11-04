@@ -3,14 +3,18 @@
 module MultipleShootingV2
 
 using LinearAlgebra
+using Random
 
 import NKRoots: update!
 
 export propagate!,
        rhs!,
        tangent!,
+       forced!,
        shift!,
        dshift!,
+       Batched,
+       Sliced,
        MultiVector,
        nsegments,
        period,
@@ -18,12 +22,19 @@ export propagate!,
        shift,
        Residual,
        Jacobian,
-       update!
+       update!,
+       Subspace,
+       iterate!,
+       change,
+       tangent_sensitivity
 
-include("interface.jl")
 include("batch.jl")
+include("interface.jl")
 include("multivector.jl")
 include("residual.jl")
 include("jacobian.jl")
+include("subspace.jl")
+include("gmres.jl")
+include("sensitivity.jl")
 
 end

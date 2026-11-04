@@ -5,13 +5,15 @@
 #
 #     propagate!(P, X, τ)      advance every state of X by the time τ          residual
 #     rhs!(P, F, X)            the time derivative f at every state of X       period, phase
-#     tangent!(P, X, V, τ)     advance the states of X, and those of V by      Jacobian
-#                              the tangent equation along them
+#     tangent!(P, X, V, τ)     advance the states of X, and those of V by      Jacobian,
+#                              the tangent equation along them                 subspace
 #     shift!(P, X, s)          shift every state of X by the shifts s          relative orbits
 #     dshift!(P, G, X, j)      the generator of shift j at every state of X    relative orbits
+#     forced!(P, X, V, τ)      as tangent!, forced by ∂f/∂p (sensitivity.jl)   sensitivity
 #
-# The last two are needed for relative periodic orbits only. The system must then be equivariant:
-# the shifts commute with the flow, and f(S(s) x) = S(s) f(x).
+# shift! and dshift! are needed for relative periodic orbits only, and forced! for the sensitivity
+# to a parameter only. For relative periodic orbits the system must be equivariant: the shifts
+# commute with the flow, and f(S(s) x) = S(s) f(x).
 
 """
     propagate!(P, X, τ) -> X

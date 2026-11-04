@@ -1,5 +1,5 @@
 [deps]
-Flows = "d910d432-2c57-11e9-263c-df934de6853d"
+FFTW = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 MultipleShootingV2 = "cf5c616b-dc67-45c6-b656-591e58e93453"
 NKRoots = "a8d363ce-860c-11ea-26b8-f7d5a45d10c5"

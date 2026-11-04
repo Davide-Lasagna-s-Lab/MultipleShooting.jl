@@ -1,134 +1,200 @@
-# Kuramoto-Sivashinsky u_t = -u u_x - u_xx - u_xxxx on [0, L) in the odd
-# subspace u(-x) = -u(x), u = Σ_{k=1}^{K} a_k sin(κ_k x), κ_k = 2πk/L.
-# The state is the vector of the K sine coefficients. The linear part is
-# diagonal and treated implicitly; the advection term is evaluated on a grid of
-# NX points (NX ≥ 3K + 1 removes aliasing of the quadratic term).
-using Flows: flow, couple, CB3R2R3e, TimeStepConstant
-using LinearAlgebra
+# The Kuramoto–Sivashinsky equation u_t = -u u_x - u_xx - u_xxxx on [0, L) with periodic boundary
+# conditions, in the full space with its continuous translation symmetry. A state is u on N grid
+# points, x_j = j L/N, and a batch is an N × m matrix with one state per column; all the work is
+# done on the whole batch at once, with the transforms along the first dimension.
+#
+# In Fourier space the equation is û_t = Λ û + N(û), with Λ = κ² - κ⁴ and N(û) = -(iκ/2) (u²)^.
+# Only the modes 1 ≤ k < N/3 are kept: the mean, which the flow conserves, and the modes the
+# quadratic term would alias are set to zero, so that the truncated system keeps the translation
+# symmetry exactly,
+#
+#     S(s) u(x) = u(x + s),   û_k → e^{iκ s} û_k,   with the generator ∂ₓ,   û_k → iκ û_k.
+#
+# The steps are ETDRK4, the exponential Runge–Kutta scheme of order four, with its coefficients
+# from a mean over points on a circle around hΛ, which avoids their cancellation at small hΛ. The
+# tangent is the linearisation of the scheme, stage by stage along the stages of the states, so
+# that it is the exact derivative of the discrete map.
+using FFTW
 
-struct KS
-    κ::Vector{Float64}
-    S::Matrix{Float64}      # NX × K, sine synthesis
-    C::Matrix{Float64}      # K × NX, cosine analysis
-    u::Vector{Float64}      # grid buffers
-    v::Vector{Float64}
-    w::Vector{Float64}
-    c::Vector{Float64}      # coefficient buffer
+struct KSPropagator
+       L::Float64              # the length of the domain
+      dt::Float64              # the largest time step
+       Λ::Vector{Float64}      # the linear part κ² - κ⁴, mode by mode, k = 0, …, N/2
+    keep::Vector{Float64}      # 1 on the modes kept, 1 ≤ k < N/3, and 0 elsewhere
+       D::Vector{ComplexF64}   # iκ on the modes kept, ∂ₓ, and 0 elsewhere
+
+    function KSPropagator(; L::Real=22.0,
+                            N::Int=64,
+                            dt::Real=0.05)
+        # ---- the wavenumbers of the real transform, and the modes kept ----
+        k    = 0:N÷2
+        κ    = 2π .* k ./ L
+        keep = Float64.(1 .<= k .< N/3)
+
+        return new(L,
+                   dt,
+                   κ.^2 .- κ.^4,
+                   keep,
+                   im .* κ .* keep)
+    end
 end
 
-function KS(L::Float64, K::Int, NX::Int)
-    κ = [2π*k/L for k in 1:K]
-    x = [L*j/NX for j in 0:NX-1]
-    S = [sin(κ[k]*x[j]) for j in 1:NX, k in 1:K]
-    C = [2/NX*cos(κ[k]*x[j]) for k in 1:K, j in 1:NX]
-    KS(κ, S, C, zeros(NX), zeros(NX), zeros(NX), zeros(K))
+# the transforms along the first dimension for a batch of the size of X, and the buffers they work
+# on: two on the grid, and one in Fourier space, which the inverse transform overwrites
+function _ks_work(X::AbstractMatrix)
+    N, m = size(X)
+    u    = Matrix{Float64}(undef, N, m)
+    ŵ    = Matrix{ComplexF64}(undef, N÷2 + 1, m)
+
+    return (f = plan_rfft(u, 1),
+            b = plan_irfft(ŵ, N, 1),
+            u = u,
+            w = similar(u),
+            ŵ = ŵ)
 end
 
-# linear operator -∂xx - ∂xxxx in the sine basis
-linear(ks::KS) = Diagonal(ks.κ.^2 .- ks.κ.^4)
+# from the grid to the modes kept, and back
+function _ks_fourier!(v̂, P::KSPropagator, W, X)
+    W.u .= X
+    mul!(v̂, W.f, W.u)
+    v̂ .*= P.keep
 
-# nonlinear term -(u²/2)_x: u² is even, its cosine coefficients c_k give -(c_k cos)'/2 = κ_k c_k/2 sin
-function (ks::KS)(t, a, dadt)
-    mul!(ks.u, ks.S, a)
-    ks.w .= ks.u.^2
-    mul!(ks.c, ks.C, ks.w)
-    dadt .= 0.5.*ks.κ.*ks.c
-    return dadt
+    return v̂
 end
 
-# linearised nonlinear term -(u v)_x
-struct KSTangent
-    ks::KS
+function _ks_grid!(X, W, v̂)
+    W.ŵ .= v̂
+    mul!(W.u, W.b, W.ŵ)
+    X .= W.u
+
+    return X
 end
 
-function (kt::KSTangent)(t, a, dadt, b, dbdt)
-    ks = kt.ks
-    mul!(ks.u, ks.S, a)
-    mul!(ks.v, ks.S, b)
-    ks.w .= ks.u.*ks.v
-    mul!(ks.c, ks.C, ks.w)
-    dbdt .= ks.κ.*ks.c
-    return dbdt
+# the nonlinear term N(v̂) = -(u²/2)ₓ on the modes kept
+function _ks_nonlinear!(N̂, P::KSPropagator, W, v̂)
+    _ks_grid!(W.u, W, v̂)
+    W.u .= W.u.^2 ./ 2
+    mul!(N̂, W.f, W.u)
+    N̂ .*= .-P.D
+
+    return N̂
 end
 
-# right-hand side of the full equation, F(out, a), for the phase condition
-struct KSRhs
-    ks::KS
-    A::Diagonal{Float64, Vector{Float64}}
-end
-(f::KSRhs)(out, a) = (f.ks(0.0, a, out); out .+= f.A.diag.*a; out)
+# and its linearisation at v̂ along δv̂, -(u δu)ₓ. δu first, since _ks_grid! passes through W.u
+function _ks_nonlinear!(N̂, P::KSPropagator, W, v̂, δv̂)
+    _ks_grid!(W.w, W, δv̂)
+    _ks_grid!(W.u, W, v̂)
+    W.u .= W.u .* W.w
+    mul!(N̂, W.f, W.u)
+    N̂ .*= .-P.D
 
-# Nonlinear flow G, coupled tangent flow L and right-hand side F
-function ks_flows(; L=39.0, K=32, NX=128, dt=0.025)
-    ks = KS(L, K, NX)
-    A = linear(ks)
-    G = flow(ks, A, CB3R2R3e(zeros(K)), TimeStepConstant(dt))
-    Lt = flow(couple(ks, KSTangent(ks)), couple(A, A),
-              CB3R2R3e(couple(zeros(K), zeros(K))), TimeStepConstant(dt))
-    return G, Lt, KSRhs(ks, A)
+    return N̂
 end
 
-# The KS propagator of the tests: the interface of MultipleShootingV2 with the flows of Flows.jl,
-# on batches in both layouts, the columns of a matrix or a vector of states, one state at a time
-struct KSPropagator{G, L, F}
-    G::G # the nonlinear flow, in place on one state
-    L::L # the flow of a state coupled to a tangent vector
-    f::F # the right-hand side at one state
+# the ETDRK4 coefficients of the step h, mode by mode: each function of hΛ is the mean of the
+# same function over M points on the upper half of a circle of radius one around hΛ, real part
+function _etdrk4(Λ, h; M::Int=32)
+    z = h .* Λ .+ transpose(cispi.(((1:M) .- 0.5) ./ M))
+
+    # ---- the mean over the circle, real part ----
+    mean(F) = vec(real(sum(F; dims=2))) ./ M
+
+    E  = exp.(h .* Λ)
+    E₂ = exp.(h .* Λ ./ 2)
+    Q  = h .* mean((exp.(z ./ 2) .- 1) ./ z)
+    f₁ = h .* mean((-4 .- z .+ exp.(z) .* (4 .- 3 .* z .+ z.^2)) ./ z.^3)
+    f₂ = h .* mean((2 .+ z .+ exp.(z) .* (z .- 2)) ./ z.^3)
+    f₃ = h .* mean((-4 .- 3 .* z .- z.^2 .+ exp.(z) .* (4 .- z)) ./ z.^3)
+
+    return E, E₂, Q, f₁, f₂, f₃
 end
 
 function MultipleShootingV2.propagate!(P::KSPropagator, X::AbstractMatrix, τ::Real)
-    # ---- one column at a time, copied, since the flows work on vectors ----
-    for j in axes(X, 2)
-        x = X[:, j]
-        P.G(x, (0, τ))
-        X[:, j] .= x
+    n = max(1, ceil(Int, τ/P.dt))
+    E, E₂, Q, f₁, f₂, f₃ = _etdrk4(P.Λ, τ/n)
+
+    # ---- the transforms, the states in Fourier space, and their stages ----
+    W = _ks_work(X)
+    v̂ = _ks_fourier!(similar(W.ŵ), P, W, X)
+    â, b̂, ĉ        = similar(v̂), similar(v̂), similar(v̂)
+    Nv, Na, Nb, Nc = similar(v̂), similar(v̂), similar(v̂), similar(v̂)
+
+    for _ in 1:n
+        _ks_nonlinear!(Nv, P, W, v̂)
+        â .= E₂ .* v̂ .+ Q .* Nv
+        _ks_nonlinear!(Na, P, W, â)
+        b̂ .= E₂ .* v̂ .+ Q .* Na
+        _ks_nonlinear!(Nb, P, W, b̂)
+        ĉ .= E₂ .* â .+ Q .* (2 .* Nb .- Nv)
+        _ks_nonlinear!(Nc, P, W, ĉ)
+        v̂ .= E .* v̂ .+ f₁ .* Nv .+ 2 .* f₂ .* (Na .+ Nb) .+ f₃ .* Nc
     end
 
-    return X
-end
-
-function MultipleShootingV2.rhs!(P::KSPropagator, F::AbstractMatrix, X::AbstractMatrix)
-    for j in axes(X, 2)
-        F[:, j] .= P.f(similar(X, size(X, 1)), X[:, j])
-    end
-
-    return F
+    return _ks_grid!(X, W, v̂)
 end
 
 function MultipleShootingV2.tangent!(P::KSPropagator, X::AbstractMatrix, V::AbstractMatrix, τ::Real)
-    # ---- one pair of columns at a time, copied ----
-    for j in axes(X, 2)
-        x = X[:, j]
-        v = V[:, j]
-        P.L(couple(x, v), (0, τ))
-        X[:, j] .= x
-        V[:, j] .= v
+    n = max(1, ceil(Int, τ/P.dt))
+    E, E₂, Q, f₁, f₂, f₃ = _etdrk4(P.Λ, τ/n)
+
+    # ---- the transforms, the states and the vectors in Fourier space, and their stages ----
+    W  = _ks_work(X)
+    v̂  = _ks_fourier!(similar(W.ŵ), P, W, X)
+    δv̂ = _ks_fourier!(similar(W.ŵ), P, W, V)
+    â, b̂, ĉ        = similar(v̂), similar(v̂), similar(v̂)
+    δâ, δb̂, δĉ     = similar(v̂), similar(v̂), similar(v̂)
+    Nv, Na, Nb, Nc = similar(v̂), similar(v̂), similar(v̂), similar(v̂)
+    Lv, La, Lb, Lc = similar(v̂), similar(v̂), similar(v̂), similar(v̂)
+
+    for _ in 1:n
+        # ---- the stages of the states ----
+        _ks_nonlinear!(Nv, P, W, v̂)
+        â .= E₂ .* v̂ .+ Q .* Nv
+        _ks_nonlinear!(Na, P, W, â)
+        b̂ .= E₂ .* v̂ .+ Q .* Na
+        _ks_nonlinear!(Nb, P, W, b̂)
+        ĉ .= E₂ .* â .+ Q .* (2 .* Nb .- Nv)
+        _ks_nonlinear!(Nc, P, W, ĉ)
+
+        # ---- the same stages linearised, along those of the states ----
+        _ks_nonlinear!(Lv, P, W, v̂, δv̂)
+        δâ .= E₂ .* δv̂ .+ Q .* Lv
+        _ks_nonlinear!(La, P, W, â, δâ)
+        δb̂ .= E₂ .* δv̂ .+ Q .* La
+        _ks_nonlinear!(Lb, P, W, b̂, δb̂)
+        δĉ .= E₂ .* δâ .+ Q .* (2 .* Lb .- Lv)
+        _ks_nonlinear!(Lc, P, W, ĉ, δĉ)
+
+        δv̂ .= E .* δv̂ .+ f₁ .* Lv .+ 2 .* f₂ .* (La .+ Lb) .+ f₃ .* Lc
+        v̂  .= E .* v̂ .+ f₁ .* Nv .+ 2 .* f₂ .* (Na .+ Nb) .+ f₃ .* Nc
     end
 
-    return V
+    _ks_grid!(X, W, v̂)
+
+    return _ks_grid!(V, W, δv̂)
 end
 
-# ---- the sliced layout: a vector of states, each advanced in place ----
-function MultipleShootingV2.propagate!(P::KSPropagator, X::AbstractVector{<:AbstractVector}, τ::Real)
-    for x in X
-        P.G(x, (0, τ))
-    end
+function MultipleShootingV2.rhs!(P::KSPropagator, F::AbstractMatrix, X::AbstractMatrix)
+    # ---- Λ û + N(û), on the modes kept ----
+    W = _ks_work(X)
+    v̂ = _ks_fourier!(similar(W.ŵ), P, W, X)
+    N̂ = _ks_nonlinear!(similar(v̂), P, W, v̂)
 
-    return X
+    return _ks_grid!(F, W, P.Λ .* v̂ .+ N̂)
 end
 
-function MultipleShootingV2.rhs!(P::KSPropagator, F::AbstractVector{<:AbstractVector}, X::AbstractVector{<:AbstractVector})
-    for (f, x) in zip(F, X)
-        P.f(f, x)
-    end
+function MultipleShootingV2.shift!(P::KSPropagator, X::AbstractMatrix, s)
+    # ---- û_k e^{iκ s}, the one shift s[1] ----
+    W = _ks_work(X)
+    v̂ = _ks_fourier!(similar(W.ŵ), P, W, X)
 
-    return F
+    return _ks_grid!(X, W, exp.(P.D .* s[1]) .* v̂)
 end
 
-function MultipleShootingV2.tangent!(P::KSPropagator, X::AbstractVector{<:AbstractVector}, V::AbstractVector{<:AbstractVector}, τ::Real)
-    for (x, v) in zip(X, V)
-        P.L(couple(x, v), (0, τ))
-    end
+function MultipleShootingV2.dshift!(P::KSPropagator, G::AbstractMatrix, X::AbstractMatrix, j::Int)
+    # ---- the generator ∂ₓ, iκ û_k ----
+    W = _ks_work(X)
+    v̂ = _ks_fourier!(similar(W.ŵ), P, W, X)
 
-    return V
+    return _ks_grid!(G, W, P.D .* v̂)
 end
