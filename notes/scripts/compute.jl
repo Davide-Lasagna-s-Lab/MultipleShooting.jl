@@ -101,7 +101,7 @@ println("KS exponents       ", λK[1:8])
 # the largest over the seeds
 function history(P, z, k, r; p=1:k, W=())
     Random.seed!(2)
-    S = Subspace(Jacobian(P, z); k=k)
+    S = Subspace(P, z; k=k)
     ε = zeros(r, length(p))
     d = zeros(r, length(W))
     m = nsegments(z)

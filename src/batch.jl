@@ -27,8 +27,11 @@ const Sliced = AbstractVector{<:AbstractArray}
 """
     nsegments(X)
 
-The number of states of the batch `X`: the size of its last dimension, batched, or its length,
-sliced.
+The number of states of a batch.
+
+# Arguments
+- `X`: a batch, [`Batched`](@ref), whose last dimension runs over the states, or
+  [`Sliced`](@ref), a vector of states.
 """
 nsegments(X::Batched) = size(X, ndims(X))
 nsegments(X::Sliced)  = length(X)
@@ -40,8 +43,8 @@ _copy(X::Sliced)  = map(copy, X)
 _similar(X::Batched) = similar(X)
 _similar(X::Sliced)  = map(similar, X)
 
-_randn!(X::Batched) = randn!(X)
-_randn!(X::Sliced)  = (foreach(randn!, X); X)
+_randn!(X::Batched) = Random.randn!(X)
+_randn!(X::Sliced)  = (foreach(Random.randn!, X); X)
 
 # the first and the last state of a batch, as a batch of one state, without a copy: the first
 # seed, and the end of the last segment
@@ -52,14 +55,20 @@ _tail(X::Batched) = selectdim(X, ndims(X), nsegments(X):nsegments(X))
 _tail(X::Sliced)  = view(X, lastindex(X):lastindex(X))
 
 # the inner product of two batches, the sum over their states
-_dot(X::Batched, Y::Batched) = dot(X, Y)
-_dot(X::Sliced, Y::Sliced)   = sum(i -> dot(X[i], Y[i]), eachindex(X))
+_dot(X::Batched, Y::Batched) = LinearAlgebra.dot(X, Y)
+_dot(X::Sliced, Y::Sliced)   = sum(i -> LinearAlgebra.dot(X[i], Y[i]), eachindex(X))
 
 # the inner products of the states of two batches, one per state: batched, an array whose last
 # dimension runs over the states and the others have size one, so that it broadcasts against a
 # batch; sliced, a vector
 _dots(X::Batched, Y::Batched) = sum(X .* Y; dims=1:ndims(X) - 1)
-_dots(X::Sliced, Y::Sliced)   = map(dot, X, Y)
+_dots(X::Sliced, Y::Sliced)   = map(LinearAlgebra.dot, X, Y)
+
+# coefficients one per state, from a vector on the host, in the shape of _dots, so that they
+# broadcast against a batch: batched, on the device of X; sliced, a vector
+_coefficients(X::Batched, c::AbstractVector) =
+    copyto!(similar(X, real(eltype(X)), ntuple(_ -> 1, ndims(X) - 1)..., length(c)), c)
+_coefficients(X::Sliced, c::AbstractVector) = collect(Float64, c)
 
 # dest ← src, the data of the states: copying a vector of states with .= would copy the references
 _copyto!(dest::Batched, src::Batched) = copyto!(dest, src)
@@ -82,8 +91,15 @@ end
 #     X = (x₁, x₂, x₃)   →   X = (x₃, x₁, x₂)
 #
 # In multiple shooting this puts the end of each segment in the row of the seed it has to reach.
-# Batched, by two reversals along the last dimension: all of it, then all but the first slot;
-# sliced, by a permutation of the states, which moves no data
+# Batched, by two reversals along the last dimension, all of it, then all but the first slot, each
+# in place; with five states,
+#
+#     X                                  (x₁, x₂, x₃, x₄, x₅)
+#     all of it reversed                 (x₅, x₄, x₃, x₂, x₁)
+#     slots 2 to 5 reversed              (x₅, x₁, x₂, x₃, x₄)
+#
+# the last state comes first, and the others keep their order one slot later. Sliced, by a
+# permutation of the states, which moves no data
 function _roll!(X::Batched)
     d = ndims(X)
     reverse!(X; dims=d)

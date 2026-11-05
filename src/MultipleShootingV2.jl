@@ -2,10 +2,10 @@
 # its Jacobian with a vector, on top of a propagator that advances batches of states.
 module MultipleShootingV2
 
-using LinearAlgebra
-using Random
-
-import NKRoots: update!
+import LinearAlgebra
+import NKRoots
+import Random
+import SparseArrays
 
 export propagate!,
        rhs!,
@@ -22,10 +22,10 @@ export propagate!,
        shift,
        Residual,
        Jacobian,
-       update!,
        Subspace,
        iterate!,
        change,
+       Preconditioner,
        tangent_sensitivity
 
 include("batch.jl")
@@ -34,6 +34,7 @@ include("multivector.jl")
 include("residual.jl")
 include("jacobian.jl")
 include("subspace.jl")
+include("preconditioner.jl")
 include("gmres.jl")
 include("sensitivity.jl")
 

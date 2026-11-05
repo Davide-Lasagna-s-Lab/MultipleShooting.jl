@@ -1,5 +1,5 @@
 using MultipleShootingV2
-using NKRoots: nkroot!
+using NKRoots: nkroot!, gram
 using LinearAlgebra
 using Random
 using Test
@@ -130,8 +130,8 @@ end
 @testset "subspace iteration                       " begin
     # ---- on the orbit with k = 2, in both layouts from the same random bases ----
     Random.seed!(2)
-    S  = Subspace(Jacobian(L, ab); k=2)
-    Sₛ = Subspace(Jacobian(L, sliced(ab)); k=2)
+    S  = Subspace(L, ab; k=2)
+    Sₛ = Subspace(L, sliced(ab); k=2)
     for a in 1:2
         Sₛ.V[a] .= collect.(eachcol(S.V[a]))
     end
@@ -184,7 +184,7 @@ ks_search!(ks22)
     #      loop by the shift of the bases. f is left out: on the loop of the scheme it is neutral
     #      only up to the error of the time step ----
     Random.seed!(2)
-    S = Subspace(Jacobian(K, ks22); k=4)
+    S = Subspace(K, ks22; k=4)
     for _ in 1:40
         iterate!(S)
     end
@@ -192,4 +192,54 @@ ks_search!(ks22)
     g = dshift!(K, similar(ks22.X), ks22.X, 1)
     Vᵢ(i) = reduce(hcat, [Vᵃ[:, i] for Vᵃ in S.V])
     @test maximum(norm(g[:, i] - Vᵢ(i)*(Vᵢ(i)'*g[:, i]))/norm(g[:, i]) for i in 1:4) < 1e-10
+end
+
+
+@testset "subspace update to a tolerance           " begin
+    # ---- steps until the first three directions are accurate, and no more than the cap ----
+    Random.seed!(2)
+    S = Subspace(K, ks22; k=4)
+    MultipleShootingV2.update!(S, ks22; tol=1e-6, maxsteps=60, p=3)
+    @test change(S; p=3) <= 1e-6 && S.steps < 60
+    MultipleShootingV2.update!(S, ks22; tol=0.0, maxsteps=3)
+    @test S.steps == 3
+end
+
+
+@testset "preconditioner                           " begin
+    # ---- on the Lorenz orbit, the coarse matrix assembled from the subspace step is Wᵀ A W, column
+    #      by column with the products of the Jacobian ----
+    Random.seed!(1)
+    J = Jacobian(L, ab)
+    M = Preconditioner(L, ab; k=2)
+    W = MultiVector[]
+    for i in 1:4, a in 1:2
+        w = MultiVector(zeros(3, 4), [0.0])
+        w.X[:, i] .= M.S.U[a][:, i]
+        push!(W, w)
+    end
+    push!(W, MultiVector(zeros(3, 4), [1.0]))
+    E = reduce(hcat, [MultipleShootingV2._restrict(M, J*w) for w in W])
+    @test norm(Matrix(M.E) - E) < 1e-12*norm(E)
+
+    # ---- M⁻¹ against the dense -(I - W Wᵀ) + W E⁻¹ Wᵀ, and the root of the Gram matrix of the
+    #      vectors M⁻¹ qⱼ against that matrix itself, for three orthonormal qⱼ ----
+    flat(w)   = [vec(w.X); w.d]
+    unflat(x) = MultiVector(reshape(x[1:12], 3, 4), x[13:13])
+    Wd = reduce(hcat, flat.(W))
+    x  = randn(13)
+    Mx = -(x - Wd*(Wd'*x)) + Wd*(Matrix(M.E) \ (Wd'*x))
+    @test norm(flat(ldiv!(similar(ab), M, unflat(x))) - Mx) < 1e-12*norm(Mx)
+
+    Q = [unflat(q) for q in eachcol(Matrix(qr(randn(13, 3)).Q))]
+    Y = reduce(hcat, [flat(ldiv!(similar(ab), M, q)) for q in Q])
+    R = gram(M, Q)
+    @test norm(R'*R - Y'*Y) < 1e-12*norm(Y'*Y)
+
+    # ---- the KS search with the preconditioner, k = 4, reaches the orbit ----
+    Random.seed!(2)
+    z  = copy(ks22_guess)
+    Jk = Jacobian(K, z)
+    @test nkroot!(Residual(K), Jk, z; precond=Preconditioner(K, z; k=4), flexible=true, krylov_dim=60,
+                  krylov_tol=1e-8, Δ=1.0, tol=1e-10, maxiter=40, verbose=false).status === :converged
 end

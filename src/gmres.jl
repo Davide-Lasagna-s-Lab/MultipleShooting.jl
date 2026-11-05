@@ -10,7 +10,7 @@
 # R y = γ[1:n], and its residual is |γₙ₊₁|, known without solving it: the iteration stops when it
 # falls below tol β. No restarts: the basis grows up to maxiter vectors, one product with A each.
 function _gmres(A!, b, tol::Real, maxiter::Int)
-    β = norm(b)
+    β = LinearAlgebra.norm(b)
 
     # ---- b = 0 has the solution x = 0 ----
     β > 0 ||
@@ -46,13 +46,13 @@ function _arnoldi!(Q, H, A!, n)
 
     # ---- minus its components along the basis ----
     for _ in 1:2, i in 1:n
-        h        = dot(Q[i], q)
+        h        = LinearAlgebra.dot(Q[i], q)
         q      .-= h .* Q[i]
         H[i, n] += h
     end
 
     # ---- normalised, and added to the basis ----
-    H[n + 1, n] = norm(q)
+    H[n + 1, n] = LinearAlgebra.norm(q)
     q ./= H[n + 1, n]
     push!(Q, q)
 
@@ -88,7 +88,7 @@ _rotate(c, s, x, y) = (c*x + s*y, -s*x + c*y)
 
 # the solution x = Σᵢ yᵢ qᵢ, with y from the triangular system R y = γ[1:n] left by the rotations
 function _combination(Q, H, γ, n)
-    y = UpperTriangular(H[1:n, 1:n]) \ γ[1:n]
+    y = LinearAlgebra.UpperTriangular(H[1:n, 1:n]) \ γ[1:n]
 
     x = similar(Q[1])
     x .= 0

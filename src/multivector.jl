@@ -11,10 +11,14 @@
 """
     MultiVector(X, d)
 
-The unknowns of multiple shooting: the seeds, the batch of m states `X`, batched or sliced, and the
-scalars `d = [T, s₁, s₂, …]`, the period followed by one shift per continuous symmetry, `d = [T]`
-for a periodic orbit. [`period`](@ref), [`nshifts`](@ref) and [`shift`](@ref) read them. It
-broadcasts like a vector, `w .= α .* z .+ w`, on the seeds and the scalars separately.
+The unknowns of multiple shooting, the seeds and the scalars. It broadcasts like a vector,
+`w .= α .* z .+ w`, on the seeds and the scalars separately.
+
+# Arguments
+- `X`: the seeds, a batch of m states, [`Batched`](@ref) or [`Sliced`](@ref).
+- `d::Vector{Float64}`: the scalars `[T, s₁, s₂, …]`, the period followed by one shift per
+  continuous symmetry, `[T]` for a periodic orbit. [`period`](@ref), [`nshifts`](@ref) and
+  [`shift`](@ref) read them.
 """
 struct MultiVector{A}
     X::A               # the seeds, a batch of states
@@ -28,20 +32,31 @@ nsegments(z::MultiVector) = nsegments(z.X)
     period(z::MultiVector) -> T
 
 The period, the first scalar of `z`.
+
+# Arguments
+- `z::MultiVector`: the unknowns.
 """
 period(z::MultiVector) = z.d[1]
 
 """
-    nshifts(z::MultiVector)
+    nshifts(z::MultiVector) -> Int
 
 The number of shifts, one per continuous symmetry, zero for a periodic orbit.
+
+# Arguments
+- `z::MultiVector`: the unknowns.
 """
 nshifts(z::MultiVector) = length(z.d) - 1
 
 """
     shift(z::MultiVector, i) -> sᵢ
 
-The i-th shift. The index is checked, since i = 0 would return the period.
+The `i`-th shift.
+
+# Arguments
+- `z::MultiVector`: the unknowns.
+- `i::Integer`: the index of the shift, from 1 to [`nshifts`](@ref)`(z)`, checked, since `i = 0`
+  would return the period.
 """
 function shift(z::MultiVector, i::Integer)
     1 <= i <= nshifts(z) ||
@@ -57,9 +72,9 @@ Base.similar(z::MultiVector) = MultiVector(_similar(z.X), similar(z.d))
 
 Base.copy(z::MultiVector) = MultiVector(_copy(z.X), copy(z.d))
 
-LinearAlgebra.dot(z::MultiVector, w::MultiVector) = _dot(z.X, w.X) + dot(z.d, w.d)
+LinearAlgebra.dot(z::MultiVector, w::MultiVector) = _dot(z.X, w.X) + LinearAlgebra.dot(z.d, w.d)
 
-LinearAlgebra.norm(z::MultiVector) = sqrt(dot(z, z))
+LinearAlgebra.norm(z::MultiVector) = sqrt(LinearAlgebra.dot(z, z))
 
 
 # ---------------------------------------------------------------------------- #

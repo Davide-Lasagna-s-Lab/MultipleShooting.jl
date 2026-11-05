@@ -19,13 +19,23 @@
     propagate!(P, X, τ) -> X
 
 Advance every state of the batch `X` in place by the time `τ`.
+
+# Arguments
+- `P`: the propagator, the type the method is written for.
+- `X`: a batch of states, [`Batched`](@ref) or [`Sliced`](@ref), overwritten with their images.
+- `τ::Real`: the time.
 """
 function propagate! end
 
 """
     rhs!(P, F, X) -> F
 
-The time derivative of the system at every state of the batch `X`, written into the batch `F`.
+The time derivative of the system at every state of the batch `X`, written into `F`.
+
+# Arguments
+- `P`: the propagator.
+- `F`: a batch like `X`, overwritten with the time derivatives.
+- `X`: a batch of states, not changed.
 """
 function rhs! end
 
@@ -34,22 +44,37 @@ function rhs! end
 
 Advance every state of the batch `X` by the time `τ`, and the state of the batch `V` with the
 same index by the tangent equation along it, both in place.
+
+# Arguments
+- `P`: the propagator.
+- `X`: a batch of states, overwritten with their images.
+- `V`: a batch of perturbations like `X`, overwritten with their images by the tangent maps.
+- `τ::Real`: the time.
 """
 function tangent! end
 
 """
     shift!(P, X, s) -> X
 
-Shift every state of the batch `X` in place by the shifts `s`, one per continuous symmetry.
-Relative periodic orbits only.
+Shift every state of the batch `X` in place. Relative periodic orbits only.
+
+# Arguments
+- `P`: the propagator.
+- `X`: a batch of states, overwritten with the shifted states.
+- `s`: the shifts, a vector with one per continuous symmetry.
 """
 function shift! end
 
 """
     dshift!(P, G, X, j) -> G
 
-The generator of the `j`-th shift, the derivative of the shifted state with respect to `sⱼ` at
-`sⱼ = 0`, at every state of the batch `X`, written into the batch `G`. Relative periodic orbits
-only.
+The generator of the `j`-th shift at every state of the batch `X`, the derivative of the shifted
+state with respect to `sⱼ` at `sⱼ = 0`, written into `G`. Relative periodic orbits only.
+
+# Arguments
+- `P`: the propagator.
+- `G`: a batch like `X`, overwritten with the generators.
+- `X`: a batch of states, not changed.
+- `j::Int`: the index of the shift.
 """
 function dshift! end

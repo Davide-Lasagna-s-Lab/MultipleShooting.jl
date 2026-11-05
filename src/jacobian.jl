@@ -23,11 +23,14 @@
 """
     Jacobian(P, z)
 
-The Jacobian of the multiple-shooting residual of the propagator `P` at the [`MultiVector`](@ref)
-`z`, matrix free: `mul!(out, J, v)` or `J*v` applies it, by the tangent equation of `P` along the
-seeds, one integration per product. It keeps `z`, not a copy. `update!(J, z)` moves it to a new
-point `z`, and so does `update!(J, z, r)`, as `nkroot!` of NKRoots.jl calls it, which does not use
-the residual `r`. Building it, or moving it, integrates the seeds once.
+The Jacobian of the multiple-shooting residual of the propagator `P` at `z`, matrix free:
+`mul!(out, J, v)` or `J*v` applies it, by the tangent equation along the seeds, one integration
+per product. Building it integrates the seeds once.
+
+# Arguments
+- `P`: the propagator, with `propagate!`, `tangent!` and `rhs!`, and `shift!` and `dshift!` for
+  relative periodic orbits.
+- `z::MultiVector`: the point, kept, not copied; `update!(J, z)` moves it to another.
 """
 mutable struct Jacobian{PT, V<:MultiVector, A, H}
     P::PT        # the propagator
@@ -53,17 +56,24 @@ mutable struct Jacobian{PT, V<:MultiVector, A, H}
                                                              G,
                                                              f,
                                                              g)
-        return update!(J, z)
+        return NKRoots.update!(J, z)
     end
 end
 
 """
     update!(J::Jacobian, z) -> J
+    update!(J::Jacobian, z, r) -> J
 
 Move `J` to the point `z`: f and the generators at the end points of the segments and at the
-first seed, with one integration of the seeds.
+first seed, with one integration of the seeds. The second form is the one `nkroot!` of
+NKRoots.jl calls.
+
+# Arguments
+- `J::Jacobian`: the Jacobian, changed.
+- `z::MultiVector`: the new point, kept, not copied.
+- `r::MultiVector`: the residual at `z`, not used.
 """
-function update!(J::Jacobian, z::MultiVector)
+function NKRoots.update!(J::Jacobian, z::MultiVector)
     τ   = period(z)/nsegments(z)
     J.z = z
 
@@ -84,7 +94,7 @@ function update!(J::Jacobian, z::MultiVector)
 end
 
 # as nkroot! of NKRoots.jl calls it, at the start of every Newton iteration
-update!(J::Jacobian, z::MultiVector, r::MultiVector) = update!(J, z)
+NKRoots.update!(J::Jacobian, z::MultiVector, r::MultiVector) = NKRoots.update!(J, z)
 
 function LinearAlgebra.mul!(out::MultiVector, J::Jacobian, v::MultiVector)
     τ  = period(J.z)/nsegments(v)
@@ -126,4 +136,4 @@ function LinearAlgebra.mul!(out::MultiVector, J::Jacobian, v::MultiVector)
     return out
 end
 
-Base.:*(J::Jacobian, v::MultiVector) = mul!(similar(v), J, v)
+Base.:*(J::Jacobian, v::MultiVector) = LinearAlgebra.mul!(similar(v), J, v)

@@ -28,53 +28,100 @@
 # here all the seeds advance together, and the largest value over the seeds is taken.
 
 """
-    Subspace(J; k)
+    Subspace(P, z; k)
 
 Orthonormal bases of `k` directions at every seed, random at the start, for subspace iteration
-along the loop of the point of the Jacobian `J`, with its propagator: the bases follow `J` when it
-moves. The bases are `k` batches like the seeds, one per direction. `iterate!(S)` makes one
-subspace step, and `change(S)` gives the accuracy of the bases before it.
+along the loop of the propagator `P` at `z`. The bases are `k` batches like the seeds, one per
+direction. [`iterate!`](@ref) makes one subspace step, `update!(S, z; tol)` moves the subspace to
+`z` and makes steps there until the bases are accurate, and [`change`](@ref) gives the accuracy
+of the bases before the last step.
+
+# Arguments
+- `P`: the propagator, with `tangent!`, and `shift!` for relative periodic orbits.
+- `z::MultiVector`: the point, kept, not copied.
+- `k::Int`: the number of directions per seed, at least 1.
 """
-struct Subspace{JT<:Jacobian, A}
-      J::JT                 # the Jacobian: its propagator and its point give the tangent maps
+mutable struct Subspace{PT, ZT<:MultiVector, A}
+      P::PT                 # the propagator
+      z::ZT                 # the point, not a copy: its seeds, period and shifts give the tangent maps
       V::Vector{A}          # the bases, one batch per direction: V[a] holds direction a at every seed
       U::Vector{A}          # the bases before the last step
       Z::Vector{A}          # the parts of the images outside the bases before, Z = (I - UUᵀ)V
     ZᵀZ::Array{Float64, 3}  # ⟨zᵢᵃ, zᵢᵇ⟩ at every seed, k × k × m, from the last step: Inf before any
     UᵀV::Array{Float64, 3}  # ⟨uᵢᵃ, vᵢᵇ⟩ at every seed, k × k × m, from the last step: Inf before any
-    tmp::A                  # work batch: the seeds, advanced with each direction
+    tmp::A                  # work batch: the seeds advanced, the end points after a step
+  steps::Int                # subspace steps of the last update!
 
-    function Subspace(J::Jacobian; k::Int)
+    function Subspace(P, z::MultiVector; k::Int)
         # ---- input checks ----
         k >= 1 ||
             throw(ArgumentError("k must be at least 1"))
 
         # ---- random orthonormal bases ----
-        X = J.z.X
+        X = z.X
         V = [_randn!(_similar(X)) for _ in 1:k]
         _orthonormalise!(V)
 
-        return new{typeof(J), typeof(X)}(J,
-                                         V,
-                                         _similar.(V),
-                                         _similar.(V),
-                                         fill(Inf, k, k, nsegments(X)),
-                                         fill(Inf, k, k, nsegments(X)),
-                                         _similar(X))
+        return new{typeof(P), typeof(z), typeof(X)}(P,
+                                                    z,
+                                                    V,
+                                                    _similar.(V),
+                                                    _similar.(V),
+                                                    fill(Inf, k, k, nsegments(X)),
+                                                    fill(Inf, k, k, nsegments(X)),
+                                                    _similar(X),
+                                                    0)
     end
+end
+
+"""
+    update!(S::Subspace, z; tol, maxsteps=20, p=k) -> S
+
+Move `S` to the point `z`, with no integration, and make subspace steps there from the bases it
+has, at least one, until the bases before the last step are accurate,
+[`change`](@ref)`(S; p) ≤ tol`, or `maxsteps` steps have been made. A function of this package,
+not the `update!` of NKRoots.jl.
+
+# Arguments
+- `S::Subspace`: the subspace, changed; `S.steps` holds the number of steps made.
+- `z::MultiVector`: the new point, kept, not copied.
+- `tol::Real`: the accuracy wanted, absolute, as [`change`](@ref).
+- `maxsteps::Int=20`: the most steps.
+- `p::Int=k`: the number of leading directions whose accuracy is tested.
+"""
+function update!(S::Subspace, z::MultiVector; tol::Real, maxsteps::Int=20, p::Int=length(S.V))
+    # ---- input checks ----
+    maxsteps >= 1 ||
+        throw(ArgumentError("maxsteps must be at least 1"))
+
+    # ---- the subspace moved to z, with no integration ----
+    S.z = z
+
+    # ---- steps until the bases before the last one are accurate ----
+    S.steps = 0
+    while S.steps < maxsteps
+        iterate!(S)
+        S.steps += 1
+        change(S; p=p) <= tol && break
+    end
+
+    return S
 end
 
 """
     iterate!(S::Subspace) -> S
 
-One subspace step at the current point of the Jacobian: each basis carried over its segment by
-the tangent map, the bases of the last seed shifted, and all of them moved to the next seed and
-orthonormalised there. On the way, the images of the bases and the bases before the step give
-Lust's remainders Z = (I - UUᵀ)V, read by [`change`](@ref). A step integrates the seeds k times,
-once with each direction.
+One subspace step at the point of `S`: each basis carried over its segment by the tangent map,
+the bases of the last seed shifted, and all of them moved to the next seed and orthonormalised
+there. On the way, the images of the bases and the bases before the step give Lust's remainders
+Z = (I - UUᵀ)V, read by [`change`](@ref). A step integrates the seeds k times, once with each
+direction, and leaves the end points of the segments, φ_τ(uᵢ), in `S.tmp`.
+
+# Arguments
+- `S::Subspace`: the subspace, changed.
 """
 function iterate!(S::Subspace)
-    z = S.J.z
+    z = S.z
     k = length(S.V)
     τ = period(z)/nsegments(z)
 
@@ -88,11 +135,11 @@ function iterate!(S::Subspace)
         # ---- advanced over the segments, along a copy of the seeds ----
         #      vᵢᵃ = ψᵢ vᵢᵃ
         _copyto!(S.tmp, z.X)
-        tangent!(S.J.P, S.tmp, S.V[a], τ)
+        tangent!(S.P, S.tmp, S.V[a], τ)
 
         # ---- the end of the last segment shifted ----
         #      v_mᵃ = S(s) ψ_m v_mᵃ
-        nshifts(z) > 0 && shift!(S.J.P, _tail(S.V[a]), _shifts(z))
+        nshifts(z) > 0 && shift!(S.P, _tail(S.V[a]), _shifts(z))
 
         # ---- each vector at the seed it reaches ----
         #      vᵢ₊₁ᵃ = ψᵢ vᵢᵃ,   v₁ᵃ = S(s) ψ_m v_mᵃ
@@ -186,6 +233,11 @@ with Uᵢ the first `p` directions of the basis at seed i and Vᵢ the images of
 before. The largest singular value of Zᵢ, an N × p matrix spread over the batches, is computed as
 the square root of the largest eigenvalue of ZᵢᵀZᵢ, a p × p matrix of inner products.
 
+# Arguments
+- `S::Subspace`: the subspace, after at least one step.
+- `p::Int=k`: the number of leading directions measured, from 1 to k; it should not split a
+  complex pair of multipliers.
+
 [`iterate!`](@ref) forms the remainder Z = (I - UUᵀ)V of all k directions and keeps ZᵀZ and the
 coordinates UᵀV of the images in the bases before, at every seed. The remainder of the first `p`
 directions is not formed: with the directions split into the first `p` and the others,
@@ -200,13 +252,13 @@ since Z is orthogonal to every column of U, so that
 
 a sum of two positive semidefinite blocks of the matrices kept, with no cancellation.
 
-With `p` the number of unstable and neutral directions it is the error of these directions; `p`
-should not split a complex pair of multipliers. It is absolute, not relative to the size of the
-images, and since Z is formed it resolves down to about eps ‖Vᵢ‖. Inf before the first step.
+With `p` the number of unstable and neutral directions it is the error of these directions. It
+is absolute, not relative to the size of the images, and since Z is formed it resolves down to
+about eps ‖Vᵢ‖. Inf before the first step.
 """
 function change(S::Subspace; p::Int=length(S.V))
     k = length(S.V)
-    m = nsegments(S.J.z)
+    m = nsegments(S.z)
 
     # ---- input checks ----
     1 <= p <= k ||
@@ -223,7 +275,7 @@ function change(S::Subspace; p::Int=length(S.V))
     for i in 1:m
         UᵀV  = S.UᵀV[r, 1:p, i]
         ZᵀZ  = S.ZᵀZ[1:p, 1:p, i] .+ UᵀV'*UᵀV
-        ε[i] = sqrt(max(eigmax(Symmetric(ZᵀZ)), 0.0))
+        ε[i] = sqrt(max(LinearAlgebra.eigmax(LinearAlgebra.Symmetric(ZᵀZ)), 0.0))
     end
 
     # ---- the largest over the seeds ----
