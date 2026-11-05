@@ -163,6 +163,21 @@ end
 end
 
 
+@testset "GMRES and Ritz values                    " begin
+    # ---- a matrix of size 30, not normal, with five distinct eigenvalues: GMRES ends after five
+    #      iterations, the degree of its minimal polynomial, with the residual of the solution as
+    #      its last, and its Ritz values are then the five eigenvalues ----
+    Random.seed!(3)
+    V = I + 0.1 .* randn(30, 30)
+    A = V*Diagonal(repeat(1.0:5.0, 6))/V
+    b = randn(30)
+    g = gmres((out, v) -> mul!(out, A, v), b; tol=1e-10, maxiter=30)
+    @test length(g.residuals) == 6
+    @test abs(g.residuals[end] - norm(b - A*g.x)/norm(b)) < 1e-12
+    @test ritz_values(g.H) ≈ 1:5
+end
+
+
 @testset "search of the KS orbit at L = 22          " begin
     # ---- the orbit of Cvitanović, Davidchack & Siminos (2010), figure 6.1 (a), Tp = 16.3 and
     #      ℓp = 2.86, to the digits given there; the guess lies near its reflection -u(-x), which

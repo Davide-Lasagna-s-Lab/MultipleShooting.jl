@@ -26,6 +26,8 @@ export propagate!,
        iterate!,
        change,
        Preconditioner,
+       gmres,
+       ritz_values,
        tangent_sensitivity
 
 include("batch.jl")

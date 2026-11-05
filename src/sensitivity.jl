@@ -68,5 +68,5 @@ function tangent_sensitivity(P, z::MultiVector; tol::Real=1e-10, maxiter::Int=20
     b .= .-b
 
     # ---- J dz/dp = -∂F/∂p ----
-    return _gmres((out, v) -> LinearAlgebra.mul!(out, J, v), b, tol, maxiter)
+    return gmres((out, v) -> LinearAlgebra.mul!(out, J, v), b; tol=tol, maxiter=maxiter).x
 end
