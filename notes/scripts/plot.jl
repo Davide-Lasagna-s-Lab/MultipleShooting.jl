@@ -116,7 +116,7 @@ let fig = Figure(size=(430, 430))
         lines!(ax, steps, rate(λL, p, τ, εL[:, p], 1, steps); color=C[p], linestyle=:dash)
     end
     axislegend(ax; position=:lb, framevisible=false)
-    ylims!(ax, 1e-12, 1e2)
+    ylims!(ax, 1e-16, 1e2)
 
     # ---- KS, ε₃ for k = 4: those of k = 3 and 6 are the same ----
     τ  = T(ks)/m(ks)

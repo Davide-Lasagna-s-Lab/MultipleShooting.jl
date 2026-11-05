@@ -616,31 +616,33 @@ measure of the next section tests these $p$ directions, and so follows this rate
 \label{sec:accuracy}
 
 To decide when the bases are accurate enough, we follow \citet[sections 2.4.4 and
-6.3.3]{lust1997}. For a single shooting, with $W = MV$ and $V$ the first $k$ ordered Schur vectors,
-he measures
+6.3.3]{lust1997}, in the letters of the code. For a single shooting, with $U$ the first $k$ ordered
+Schur vectors and $V = MU$ their images, he measures
 \begin{equation}
-  \varepsilon_k = \max_{\|p\| = 1} \big\| (I - VV^{\!\top}) M V p \big\| ,
+  \varepsilon_k = \max_{\|p\| = 1} \big\| (I - UU^{\!\top}) M U p \big\| ,
 \end{equation}
-the largest singular value of $Z = (I - VV^{\!\top}) W$, the part of the image of the subspace that
-falls outside it. It vanishes when the span of $V$ is invariant. It costs no further products with
-$M$, since $Z^{\!\top} Z = W^{\!\top} W - (V^{\!\top} W)^{\!\top} (V^{\!\top} W)$ involves $k \times k$
+the largest singular value of $Z = (I - UU^{\!\top}) V$, the part of the image of the subspace that
+falls outside it. It vanishes when the span of $U$ is invariant. It costs no further products with
+$M$, since $Z^{\!\top} Z = V^{\!\top} V - (U^{\!\top} V)^{\!\top} (U^{\!\top} V)$ involves $k \times k$
 matrices only.
 
 Here the bases before a step are $U_i$, orthonormal $n \times k$ at every seed. After the tangent
 maps, the shift and the roll, slot $i$ holds the image of the basis of the seed before,
 \begin{equation}
-  W_i = \psi_{i-1} U_{i-1}, \quad i = 2, \dots, m, \qquad W_1 = \tilde\psi_m U_m ,
+  V_i = \psi_{i-1} U_{i-1}, \quad i = 2, \dots, m, \qquad V_1 = \tilde\psi_m U_m ,
 \end{equation}
-and \code{iterate!} keeps, before it orthonormalises, the $k \times k$ matrices $W_i^{\!\top} W_i$
-and $C_i = U_i^{\!\top} W_i$, from the inner products between the batches, one per seed, brought
-to the host. For the first $p$ directions, with $E_p$ the first $p$ columns of the identity,
-$U_i^p = U_i E_p$ and $W_i^p = W_i E_p$, the remainder and its Gram matrix are
+and \code{iterate!}, before it orthonormalises, forms the remainders of all $k$ directions,
+$Z_i = V_i - U_i (U_i^{\!\top} V_i) = (I - U_iU_i^{\!\top}) V_i$, and keeps the $k \times k$ matrices
+$Z_i^{\!\top} Z_i$ and $U_i^{\!\top} V_i$, from the inner products between the batches, one per seed,
+brought to the host. For the first $p$ directions, with $E_p$ the first $p$ columns of the
+identity, $U_i^p = U_i E_p$ and $V_i^p = V_i E_p$, the remainder is that of all $k$ plus its part
+along the other $k - p$ directions, two parts orthogonal to each other, so that
 \begin{equation}
-  Z_i^p = \big(I - U_i^p U_i^{p\top}\big) W_i^p, \qquad
-  Z_i^{p\top} Z_i^p = \big(W_i^{\!\top} W_i\big)_{1:p,\,1:p}
-                    - \big(C_i\big)_{1:p,\,1:p}^{\!\top} \big(C_i\big)_{1:p,\,1:p} ,
+  Z_i^p = \big(I - U_i^p U_i^{p\top}\big) V_i^p, \qquad
+  Z_i^{p\top} Z_i^p = \big(Z_i^{\!\top} Z_i\big)_{1:p,\,1:p}
+                    + \big(U_i^{\!\top} V_i\big)_{p+1:k,\,1:p}^{\!\top} \big(U_i^{\!\top} V_i\big)_{p+1:k,\,1:p} ,
 \end{equation}
-blocks of the matrices kept, and \code{change(S; p)} returns
+a sum of two positive semidefinite blocks of the matrices kept, and \code{change(S; p)} returns
 \begin{equation}
   \varepsilon_p = \max_i \sigma_{\max}\big(Z_i^p\big)
                 = \max_i \sqrt{\lambda_{\max}\big(Z_i^{p\top} Z_i^p\big)} .
@@ -655,12 +657,12 @@ directions it measures the error of these directions.
     \fill[c1!10] (0, 0) -- (4.6, 0) -- (5.8, 1.4) -- (1.2, 1.4) -- cycle;
     \draw[c1!60] (0, 0) -- (4.6, 0) -- (5.8, 1.4) -- (1.2, 1.4) -- cycle;
     \node[c1, font=\small] at (5.0, 1.15) {$\mathrm{span}\, U_i$};
-    % W, its projection and Z
+    % V, its projection and Z
     \coordinate (o) at (1.4, 0.4);
     \coordinate (p) at (3.6, 0.9);
     \coordinate (w) at (3.6, 2.6);
-    \draw[->, thick] (o) -- (w) node[above, font=\small] {$W_i e_1 = \psi_{i-1} u_{i-1}^1$};
-    \draw[->, thick, dashed, c1] (o) -- (p) node[below right, font=\small] {$U_i C_i e_1$};
+    \draw[->, thick] (o) -- (w) node[above, font=\small] {$V_i e_1 = \psi_{i-1} u_{i-1}^1$};
+    \draw[->, thick, dashed, c1] (o) -- (p) node[below right, font=\small] {$U_i U_i^{\!\top} V_i e_1$};
     \draw[->, thick, cr] (p) -- (w) node[midway, right, font=\small] {$Z_i e_1$};
     \draw (3.45, 0.9) -- (3.45, 1.05) -- (3.6, 1.05);
     \fill (o) circle (1.4pt);
@@ -679,17 +681,19 @@ remainder. Here every seed receives the image of a basis that the step has not y
 each has a remainder of its own, and the code takes the largest.
 
 The iteration itself departs from Lust's in its lack of a projection step. In Lust's algorithm a
-projection step makes $V^{\!\top} W$ block upper triangular, so that the projections of the image
+projection step makes $U^{\!\top} V$ block upper triangular, so that the projections of the image
 of the first $p$ directions on these directions and on all $k$ coincide. The first $p$ directions
 then gain from the other $k - p$, and their measure falls at the rate \eqref{eq:rate} with
 $j = p$, that of an iteration of dimension $k$. The step \eqref{eq:step} has no projection, and by
 section~\ref{sec:subspace} the measure follows the slower rate of an iteration of dimension $p$,
 whatever $k$ is.
 
-Two limits apply. The first comes from forming $Z^{\!\top}Z$, which Lust regards as less stable
-than a factorisation of $Z$ but accurate enough for the purpose. As a difference of two matrices of
-size $\|W\|^2$, it resolves the measure down to about $\sqrt{\epsilon}\,\|W\|$, with $\epsilon$ the
-machine precision, near $10^{-8}$ for bases of unit size. The second is that $p$ should not split
+Two limits apply. The first is rounding. Lust forms $Z^{\!\top}Z$ as the difference
+$V^{\!\top}V - (U^{\!\top}V)^{\!\top}(U^{\!\top}V)$, which he regards as less stable than a
+factorisation of $Z$ but accurate enough for the purpose, and which resolves the measure down to
+about $\sqrt{\epsilon}\,\|V\|$ only, with $\epsilon$ the machine precision. The code forms $Z$
+itself, so that its Gram matrix carries no cancellation and the measure resolves down to about
+$\epsilon\,\|V\|$. The second is that $p$ should not split
 a complex pair of multipliers, as Lust also requires. The two directions of a pair rotate into
 each other at every step, so that the span of only one of them never settles.
 
@@ -735,8 +739,8 @@ last iterations converge quadratically (figure~\ref{fig:newton}).
 On the orbit the dense monodromy, built from the tangent maps of three unit vectors, has the
 multipliers $4.7$, $1$ and about $10^{-10}$. With $k = 2$ the bases hold the unstable and the
 neutral direction. The gap to the third multiplier is so wide that $\varepsilon_2$ falls by about
-three orders of magnitude per step, as \eqref{eq:rate} predicts, down to the floor of the measure
-in four steps (figure~\ref{fig:subspacedata}, top left). The unstable direction alone is set apart
+three orders of magnitude per step, as \eqref{eq:rate} predicts, down to rounding, near
+$10^{-15}$, in seven steps (figure~\ref{fig:subspacedata}, top left). The unstable direction alone is set apart
 from the neutral one only by the factor $4.7$ over a loop, so that $\varepsilon_1$ falls by about
 $0.7$ per step, on average over a loop, the rate of an iteration of dimension one.
 
@@ -832,8 +836,8 @@ With $p = 3$ the measure follows the unstable and the two neutral directions
 (figure~\ref{fig:subspacedata}, top right). It falls at the rate set by the fourth multiplier,
 about a factor $0.58$ per step, close to the dashed line. With $k = 3$, $4$ and $6$ from the same
 random start the values agree to rounding, since without a projection step the directions beyond
-the third do not act on the first three (section~\ref{sec:accuracy}). The measure stops at a few
-$10^{-8}$, the floor of section~\ref{sec:accuracy}.
+the third do not act on the first three (section~\ref{sec:accuracy}). After 40 steps it is near
+$10^{-8}$ and still falling.
 
 The bottom panel tells the two neutral directions apart. The generator of the shift enters the
 span of the bases down to rounding, since the shift commutes exactly with the truncated scheme.
