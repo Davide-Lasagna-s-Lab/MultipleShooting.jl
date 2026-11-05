@@ -12,18 +12,19 @@
 #     V[1] = (v₁¹, v₂¹, …, v_m¹),   …,   V[k] = (v₁ᵏ, v₂ᵏ, …, v_mᵏ),
 #
 # so that each is advanced, shifted and rolled as a vector of the Jacobian is, by tangent! along
-# the seeds, one direction at a time. Gram–Schmidt then runs across the k batches, state by state, in order, so that the
-# first p directions at every seed are a subspace iteration of their own.
+# the seeds, one direction at a time. Gram–Schmidt then runs across the k batches, state by state,
+# in order, so that the first p directions at every seed are a subspace iteration of their own.
 #
-# The accuracy of the bases is measured as in Lust (1997, sections 2.4.4 and 6.3.3): the part of
-# the image of a basis that falls outside the basis at the seed it reaches,
+# The accuracy of the first p directions is measured as in Lust (1997, sections 2.4.4 and 6.3.3):
+# the part of their images that falls outside their span at the seed they reach,
 #
 #     Zᵢ₊₁ = (I - Uᵢ₊₁ Uᵢ₊₁ᵀ) Wᵢ₊₁,   Wᵢ₊₁ = ψᵢ Uᵢ,   W₁ = S(s) ψ_m U_m,
 #
-# with U the bases before a step and W their images, zero when the spans are invariant. Its
-# largest singular value comes from k × k matrices only, ZᵀZ = WᵀW - (UᵀW)ᵀ(UᵀW). Lust measures it
-# at the seed which closes the loop, where his sweep meets its start; here all the seeds advance
-# together, and the largest value over the seeds is taken.
+# with U the first p directions of the bases before a step and W their images, zero when the spans
+# are invariant. Its largest singular value comes from p × p matrices only, the blocks of the k × k
+# matrices of inner products WᵀW and UᵀW, ZᵀZ = WᵀW - (UᵀW)ᵀ(UᵀW). Lust measures it at the seed
+# which closes the loop, where his sweep meets its start; here all the seeds advance together, and
+# the largest value over the seeds is taken.
 
 """
     Subspace(J; k)
@@ -37,7 +38,8 @@ struct Subspace{JT<:Jacobian, A}
       J::JT                 # the Jacobian: its propagator and its point give the tangent maps
       V::Vector{A}          # the bases, one batch per direction: V[a] holds direction a at every seed
       U::Vector{A}          # the bases before the last step
-    ZᵀZ::Array{Float64, 3}  # ZᵢᵀZᵢ at every seed, k × k × m, from the last step: Inf before any
+    WᵀW::Array{Float64, 3}  # ⟨wᵢᵃ, wᵢᵇ⟩ at every seed, k × k × m, from the last step: Inf before any
+    UᵀW::Array{Float64, 3}  # ⟨uᵢᵃ, wᵢᵇ⟩ at every seed, k × k × m, from the last step: Inf before any
     tmp::A                  # work batch: the seeds, advanced with each direction
 
     function Subspace(J::Jacobian; k::Int)
@@ -54,6 +56,7 @@ struct Subspace{JT<:Jacobian, A}
                                          V,
                                          _similar.(V),
                                          fill(Inf, k, k, nsegments(X)),
+                                         fill(Inf, k, k, nsegments(X)),
                                          _similar(X))
     end
 end
@@ -63,9 +66,9 @@ end
 
 One subspace step at the current point of the Jacobian: each basis carried over its segment by
 the tangent map, the bases of the last seed shifted, and all of them moved to the next seed and
-orthonormalised there. On the way, the images of the bases give the matrices ZᵢᵀZᵢ of Lust's
-measure of accuracy, read by [`change`](@ref). A step integrates the seeds k times, once with
-each direction.
+orthonormalised there. On the way, the images of the bases and the bases before the step give
+the inner products of Lust's measure of accuracy, read by [`change`](@ref). A step integrates the
+seeds k times, once with each direction.
 """
 function iterate!(S::Subspace)
     z = S.J.z
@@ -93,9 +96,9 @@ function iterate!(S::Subspace)
         _roll!(S.V[a])
     end
 
-    # ---- Lust's residual, from the images and the bases before the step, at every seed ----
-    #      ZᵢᵀZᵢ = WᵢᵀWᵢ - (UᵢᵀWᵢ)ᵀ(UᵢᵀWᵢ),   Wᵢ = Vᵢ here
-    _residual!(S.ZᵀZ, S.U, S.V)
+    # ---- the inner products of Lust's residual, from the images and the bases before the step ----
+    #      WᵢᵀWᵢ and UᵢᵀWᵢ at every seed,   Wᵢ = Vᵢ here
+    _inner!(S.WᵀW, S.UᵀW, S.U, S.V)
 
     # ---- the bases orthonormalised at every seed ----
     #      Vᵢ = orth(Vᵢ)
@@ -104,27 +107,23 @@ function iterate!(S::Subspace)
     return S
 end
 
-# ZᵢᵀZᵢ = WᵢᵀWᵢ - (UᵢᵀWᵢ)ᵀ(UᵢᵀWᵢ) at every seed i, into the k × k × m array ZᵀZ, from the bases U
-# before the step and their images W, k batches each like the seeds, through the inner products
-# between the batches, brought to the host
-function _residual!(ZᵀZ::Array{Float64, 3},
-                      U::Vector{A},
-                      W::Vector{A}) where {A}
+# WᵢᵀWᵢ and UᵢᵀWᵢ at every seed i, into the k × k × m arrays WᵀW and UᵀW, from the bases U before
+# the step and their images W, k batches each like the seeds: the inner products between the
+# batches, one per seed, brought to the host
+function _inner!(WᵀW::Array{Float64, 3},
+                 UᵀW::Array{Float64, 3},
+                   U::Vector{A},
+                   W::Vector{A}) where {A}
     k = length(U)
-    m = nsegments(W[1])
 
-    # ---- the inner products, one per seed ----
-    #      WᵀW[a, b][i] = ⟨wᵢᵃ, wᵢᵇ⟩,   UᵀW[a, b][i] = ⟨uᵢᵃ, wᵢᵇ⟩
-    WᵀW = [Array(_dots(W[a], W[b])) for a in 1:k, b in 1:k]
-    UᵀW = [Array(_dots(U[a], W[b])) for a in 1:k, b in 1:k]
-
-    # ---- assembled seed by seed ----
-    for i in 1:m
-        Cᵢ = getindex.(UᵀW, i)
-        ZᵀZ[:, :, i] .= getindex.(WᵀW, i) .- Cᵢ'*Cᵢ
+    # ---- every pair of directions, at every seed at once ----
+    #      WᵀW[a, b, i] = ⟨wᵢᵃ, wᵢᵇ⟩,   UᵀW[a, b, i] = ⟨uᵢᵃ, wᵢᵇ⟩
+    for a in 1:k, b in 1:k
+        WᵀW[a, b, :] .= vec(Array(_dots(W[a], W[b])))
+        UᵀW[a, b, :] .= vec(Array(_dots(U[a], W[b])))
     end
 
-    return ZᵀZ
+    return WᵀW, UᵀW
 end
 
 # Modified Gram–Schmidt across the batches, at every seed i, in the order of the directions, and
@@ -157,16 +156,17 @@ end
 """
     change(S::Subspace; p=k)
 
-The accuracy of the bases before the last subspace step, as in Lust (1997, sections 2.4.4 and
-6.3.3): the largest singular value of Zᵢ = (I - Uᵢ Uᵢᵀ) Wᵢ restricted to the first `p`
-directions, the largest over the seeds,
+The accuracy of the first `p` directions of the bases before the last subspace step, as in Lust
+(1997, sections 2.4.4 and 6.3.3): the largest singular value of the part of their images that
+falls outside their span, the largest over the seeds,
 
-    ε_p = maxᵢ σ_max(Zᵢ[:, 1:p]) = maxᵢ √λ_max(ZᵢᵀZᵢ[1:p, 1:p]),
+    ε_p = maxᵢ σ_max(Zᵢ),   Zᵢ = (I - Uᵢ Uᵢᵀ) Wᵢ,
 
-with Uᵢ the basis at seed i and Wᵢ the image of the basis of the seed before. With `p` the number
-of unstable and neutral directions it is the error of these directions; `p` should not split a
-complex pair of multipliers. It is absolute, not relative to the size of the images, and from
-ZᵀZ it resolves down to about √eps ‖Wᵢ‖. Inf before the first step.
+with Uᵢ the first `p` directions of the basis at seed i and Wᵢ the images of those of the seed
+before. With `p` the number of unstable and neutral directions it is the error of these
+directions; `p` should not split a complex pair of multipliers. It is absolute, not relative to
+the size of the images, and from ZᵀZ it resolves down to about √eps ‖Wᵢ‖. Inf before the first
+step.
 """
 function change(S::Subspace; p::Int=length(S.V))
     k = length(S.V)
@@ -177,12 +177,18 @@ function change(S::Subspace; p::Int=length(S.V))
         throw(ArgumentError("p must be between 1 and k"))
 
     # ---- nothing to measure before the first step ----
-    all(isfinite, S.ZᵀZ) ||
+    all(isfinite, S.WᵀW) ||
         return Inf
 
-    # ---- the largest singular value at every seed, the largest over the seeds ----
-    #      ε_p = maxᵢ √λ_max(ZᵢᵀZᵢ[1:p, 1:p]), the rounding of ZᵀZ below zero cut off
-    ε = [sqrt(max(eigmax(Symmetric(S.ZᵀZ[1:p, 1:p, i])), 0.0)) for i in 1:m]
+    # ---- the largest singular value at every seed, from the p × p blocks ----
+    #      ZᵢᵀZᵢ = WᵢᵀWᵢ - CᵢᵀCᵢ,   Cᵢ = UᵢᵀWᵢ,   the rounding of ZᵀZ below zero cut off
+    ε = zeros(m)
+    for i in 1:m
+        C    = S.UᵀW[1:p, 1:p, i]
+        ZᵀZ  = S.WᵀW[1:p, 1:p, i] .- C'*C
+        ε[i] = sqrt(max(eigmax(Symmetric(ZᵀZ)), 0.0))
+    end
 
+    # ---- the largest over the seeds ----
     return maximum(ε)
 end

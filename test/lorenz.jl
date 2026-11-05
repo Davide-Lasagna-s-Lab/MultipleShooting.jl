@@ -1,8 +1,7 @@
-# The Lorenz system at the classical parameters σ = 10, ρ = 28, β = 8/3, whose shortest periodic
-# orbit, AB, has the period T = 1.5586522… (Viswanath 2003), advanced by RK4, the tangent by the
-# linearisation of the scheme. ρ is a field of the propagator, the parameter of the sensitivity. The right-hand side and its linearisation are written for one state,
-# a 3-vector, and applied column by column to a 3 × B matrix, so that the same RK4 serves both
-# layouts.
+# The Lorenz system at the classical parameters σ = 10, ρ = 28, β = 8/3, advanced by RK4, the
+# tangent by the linearisation of the scheme. ρ is a field of the propagator, the parameter of the
+# sensitivity. The right-hand side and its linearisation are written for one state, a 3-vector, and
+# applied column by column to a 3 × B matrix, so that the same RK4 serves both layouts.
 const σ_lz = 10.0
 const β_lz = 8/3
 

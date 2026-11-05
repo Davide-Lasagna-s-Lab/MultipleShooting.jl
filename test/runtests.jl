@@ -179,12 +179,13 @@ ks_search!(ks22)
 
 
 @testset "subspace iteration on the KS orbit       " begin
-    # ---- with k = 4 the first three directions settle, and the bases contain the generator of
-    #      the shift, carried round the loop by the shift of the bases. f is left out: on the loop
-    #      of the scheme it is neutral only up to the error of the time step ----
+    # ---- the first three directions settle, by about 0.58 a step, the rate of an iteration of
+    #      dimension three, and the bases contain the generator of the shift, carried round the
+    #      loop by the shift of the bases. f is left out: on the loop of the scheme it is neutral
+    #      only up to the error of the time step ----
     Random.seed!(2)
     S = Subspace(Jacobian(K, ks22); k=4)
-    for _ in 1:24
+    for _ in 1:40
         iterate!(S)
     end
     @test change(S; p=3) < 1e-6

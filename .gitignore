@@ -1,2 +1,5 @@
 Manifest.toml
 test/Manifest.toml
+notes/*.log
+notes/*.blg
+notes/scripts/data.jls
