@@ -5,7 +5,8 @@
 #
 #     ψᵢ vᵢ - vᵢ₊₁ + δτ f(φ_τ(uᵢ)),
 #
-# with ψᵢ the tangent map of segment i and δτ = δT/m the change of the length of a segment. In
+# with ψᵢ the tangent map of segment i and δτ = wᵢ δT the change of its length τᵢ = wᵢ T, with wᵢ
+# its fraction of the period, 1/m for equal segments. In
 # row 1, which closes the orbit, the end of the last segment is shifted, and the shifts add their
 # columns,
 #
@@ -35,7 +36,8 @@ The Jacobian of the multiple-shooting residual of the propagator `P` at `z`, mat
     (Jv)₁   = S(s) ψ_m v_m - v₁ + δτ S(s) ∂φ_τ(u_m)/∂τ + Σⱼ δsⱼ gⱼ(w),   w = S(s) φ_τ(u_m),
     (Jv)_T  = ⟨f(u₁), v₁⟩,   (Jv)_sⱼ = ⟨gⱼ(u₁), v₁⟩,
 
-with δτ = δT/m, ψᵢ the tangent maps, by the tangent equation along the seeds, one integration per
+with δτ = wᵢ δT the change of the length τᵢ = wᵢ T of segment i, δT/m for equal segments, ψᵢ the
+tangent maps, by the tangent equation along the seeds, one integration per
 product, and the scalar rows the phase conditions. Building it integrates the seeds once, by
 [`dpropagate!`](@ref), which also gives the column of the period.
 
@@ -48,8 +50,8 @@ mutable struct Jacobian{PT, V<:MultiVector, A, H}
          P::PT        # the propagator
          z::V         # the point, not a copy
        tmp::A         # work batch: the end points, then the seeds advanced with the vectors
-         F::A         # the column of the period times m: in row i, the derivative in τ of the
-                      # end of segment i, by dpropagate!, the last one shifted
+         F::A         # the column of the period: in row i, the derivative in T of the end of
+                      # segment i, wᵢ times that in τᵢ by dpropagate!, the last one shifted
          G::Vector{H} # the generators at the shifted end of the last segment, one per shift
          f::H         # f at the first seed, a batch of one state
          g::Vector{H} # the generators at the first seed, one per shift
@@ -87,12 +89,15 @@ one `nkroot!` of NKRoots.jl calls.
 - `r::MultiVector`: the residual at `z`, not used.
 """
 function NKRoots.update!(J::Jacobian, z::MultiVector)
-    τ   = period(z)/nsegments(z)
+    τ   = times(z)
     J.z = z
 
     # ---- the end points, row i φ_τ(uᵢ), and their derivatives in τ, the column of the period ----
     _copyto!(J.tmp, z.X)
     dpropagate!(J.P, J.tmp, J.F, τ)
+
+    # ---- each scaled by the fraction of its segment, since τᵢ = wᵢ T ----
+    _scale!(J.F, z.w)
 
     # ---- the end of the last segment shifted, and its derivative with it ----
     if nshifts(z) > 0
@@ -114,8 +119,8 @@ end
 NKRoots.update!(J::Jacobian, z::MultiVector, r::MultiVector) = NKRoots.update!(J, z)
 
 function LinearAlgebra.mul!(out::MultiVector, J::Jacobian, v::MultiVector)
-    τ  = period(J.z)/nsegments(v)
-    δτ = period(v)/nsegments(v)
+    τ  = times(J.z)
+    δT = period(v)
 
     # ---- the seeds and the vector ----
     #      tmpᵢ = uᵢ,   outᵢ = vᵢ
@@ -131,8 +136,8 @@ function LinearAlgebra.mul!(out::MultiVector, J::Jacobian, v::MultiVector)
     nshifts(J.z) > 0 && shift!(J.P, _tail(out.X), _shifts(J.z))
 
     # ---- plus the period column, and the shift columns at the end of the last segment ----
-    #      outᵢ += δτ Fᵢ, Fᵢ = ∂φ_τ(uᵢ)/∂τ,   out_m += Σⱼ δsⱼ gⱼ(S(s) φ_τ(u_m))
-    _map!((ψv, f) -> ψv + δτ*f, out.X, out.X, J.F)
+    #      outᵢ += δT Fᵢ, Fᵢ = wᵢ ∂φ_τ(uᵢ)/∂τ,   out_m += Σⱼ δsⱼ gⱼ(S(s) φ_τ(u_m))
+    _map!((ψv, f) -> ψv + δT*f, out.X, out.X, J.F)
     for j in 1:nshifts(J.z)
         δs = shift(v, j)
         _map!((o, g) -> o + δs*g, _tail(out.X), _tail(out.X), J.G[j])

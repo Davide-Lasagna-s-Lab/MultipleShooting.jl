@@ -70,6 +70,10 @@ _coefficients(X::Batched, c::AbstractVector) =
     copyto!(similar(X, real(eltype(X)), ntuple(_ -> 1, ndims(X) - 1)..., length(c)), c)
 _coefficients(X::Sliced, c::AbstractVector) = collect(Float64, c)
 
+# every state of X times its own coefficient, in place
+_scale!(X::Batched, c::AbstractVector) = (X .*= _coefficients(X, c); X)
+_scale!(X::Sliced, c::AbstractVector)  = (foreach((x, a) -> x .*= a, X, c); X)
+
 # dest ← src, the data of the states: copying a vector of states with .= would copy the references
 _copyto!(dest::Batched, src::Batched) = copyto!(dest, src)
 _copyto!(dest::Sliced, src::Sliced)   = (foreach((d, s) -> d .= s, dest, src); dest)

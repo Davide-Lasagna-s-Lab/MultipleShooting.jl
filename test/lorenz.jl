@@ -141,3 +141,13 @@ MultipleShootingV2.dpropagate!(P::LorenzPropagator, X::Sliced, V::Sliced, τ::Re
 
 MultipleShootingV2.rhs!(P::LorenzPropagator, F::Sliced, X::Sliced) =
     (foreach((f, x) -> lorenz_rhs!(f, x, P.ρ), F, X); F)
+
+# ---- sliced, with one time per state: each state over its own time, with its own number of steps ----
+MultipleShootingV2.propagate!(P::LorenzPropagator, X::Sliced, τ::AbstractVector) =
+    (foreach((x, t) -> rk4!(_rhs(P), x, t, P.dt), X, τ); X)
+
+MultipleShootingV2.tangent!(P::LorenzPropagator, X::Sliced, V::Sliced, τ::AbstractVector) =
+    (foreach((x, v, t) -> rk4!(_rhs(P), _lin(P), x, v, t, P.dt), X, V, τ); V)
+
+MultipleShootingV2.dpropagate!(P::LorenzPropagator, X::Sliced, V::Sliced, τ::AbstractVector) =
+    (foreach((x, v, t) -> (v .= 0; rk4!(_rhs(P), _stretched(P, t), x, v, t, P.dt)), X, V, τ); V)

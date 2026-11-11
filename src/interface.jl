@@ -3,7 +3,7 @@
 # advance all the states of a batch at once, on threads or on a GPU, or one at a time. A
 # propagator is a type of the user's, for which these methods are defined:
 #
-#     propagate!(P, X, τ)      advance every state of X by the time τ          residual
+#     propagate!(P, X, τ)      advance every state of X by its time τᵢ         residual
 #     dpropagate!(P, X, V, τ)  as propagate!, and V the derivative in τ of the  period
 #                              end points; by default f at the end points
 #     rhs!(P, F, X)            the time derivative f at every state of X       period, phase
@@ -151,3 +151,25 @@ From `V = 0` it gives the derivative of the end points in the parameter, vᵢ = 
 - `τ::Real`: the time.
 """
 function forced! end
+
+
+# ---------------------------------------------------------------------------- #
+# one time per state                                                           #
+# ---------------------------------------------------------------------------- #
+
+# The package calls the propagator with a vector of times, one per state of the batch, the lengths
+# of the segments. It does not choose how a batch is advanced over unequal times: a propagator
+# that allows them gives methods with `τ::AbstractVector`. For the others, these methods pass
+# equal times on as one number, and refuse unequal ones.
+function _onetime(τ::AbstractVector)
+    all(==(first(τ)), τ) ||
+        throw(ArgumentError("the segments have unequal lengths, and the propagator has no " *
+                            "method with a vector of times"))
+
+    return first(τ)
+end
+
+propagate!(P, X, τ::AbstractVector)     = propagate!(P, X, _onetime(τ))
+dpropagate!(P, X, V, τ::AbstractVector) = dpropagate!(P, X, V, _onetime(τ))
+tangent!(P, X, V, τ::AbstractVector)    = tangent!(P, X, V, _onetime(τ))
+forced!(P, X, V, τ::AbstractVector)     = forced!(P, X, V, _onetime(τ))

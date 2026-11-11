@@ -132,7 +132,7 @@ direction, and leaves the end points of the segments, φ_τ(uᵢ), in `S.tmp`.
 function iterate!(S::Subspace)
     z = S.z
     k = length(S.V)
-    τ = period(z)/nsegments(z)
+    τ = times(z)
 
     # ---- the bases before the step ----
     #      Uᵃ = Vᵃ

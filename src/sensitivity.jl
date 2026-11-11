@@ -36,7 +36,7 @@ by GMRES.
 """
 function tangent_sensitivity(P, z::MultiVector; tol::Real=1e-10, maxiter::Int=200)
     J = Jacobian(P, z)
-    τ = period(z)/nsegments(z)
+    τ = times(z)
 
     # ---- the seeds, and vectors from zero ----
     #      tmpᵢ = uᵢ,   bᵢ = 0

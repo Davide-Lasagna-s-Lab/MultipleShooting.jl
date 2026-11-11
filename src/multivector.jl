@@ -9,7 +9,7 @@
 # and state by state in the sliced one.
 
 """
-    MultiVector(X, d)
+    MultiVector(X, d; τ=nothing)
 
 The unknowns of multiple shooting, the seeds and the scalars,
 
@@ -24,11 +24,45 @@ separately.
 - `d::Vector{Float64}`: the scalars `[T, s₁, s₂, …]`, the period followed by one shift per
   continuous symmetry, `[T]` for a periodic orbit. [`period`](@ref), [`nshifts`](@ref) and
   [`shift`](@ref) read them.
+- `τ=nothing`: the lengths of the segments, one per seed, positive and adding up to the period.
+  Equal segments, T/m, when not given. [`times`](@ref) reads them. The vector keeps their
+  fractions of the period, so that a new period changes them all in proportion.
 """
 struct MultiVector{A}
     X::A               # the seeds, a batch of states
     d::Vector{Float64} # the scalars: the period, then the shifts
+    w::Vector{Float64} # the fractions of the period of the segments, τᵢ/T, not part of the vector
+
+    function MultiVector(X, d::AbstractVector; τ=nothing)
+        m = nsegments(X)
+        d = convert(Vector{Float64}, d)
+
+        # ---- input checks ----
+        τ === nothing || length(τ) == m ||
+            throw(ArgumentError("one time per segment is needed, got $(length(τ)) for $(m)"))
+        τ === nothing || (all(>(0), τ) && sum(τ) ≈ d[1]) ||
+            throw(ArgumentError("the times must be positive and add up to the period"))
+
+        # ---- the fractions: equal segments unless the times are given ----
+        w = τ === nothing ? fill(1/m, m) : collect(Float64, τ) ./ sum(τ)
+
+        return new{typeof(X)}(X, d, w)
+    end
+
+    # a vector with the fractions of another, shared and not copied
+    MultiVector(X, d::Vector{Float64}, w::Vector{Float64}) = new{typeof(X)}(X, d, w)
 end
+
+"""
+    times(z::MultiVector) -> τ
+
+The lengths of the segments, τᵢ = wᵢ T, one per seed. They add up to the period. A change of the
+period changes them all in proportion.
+
+# Arguments
+- `z::MultiVector`: the unknowns.
+"""
+times(z::MultiVector) = z.w .* period(z)
 
 nsegments(z::MultiVector) = nsegments(z.X)
 
@@ -73,9 +107,9 @@ end
 # all the shifts, as a view
 _shifts(z::MultiVector) = view(z.d, 2:lastindex(z.d))
 
-Base.similar(z::MultiVector) = MultiVector(_similar(z.X), similar(z.d))
+Base.similar(z::MultiVector) = MultiVector(_similar(z.X), similar(z.d), z.w)
 
-Base.copy(z::MultiVector) = MultiVector(_copy(z.X), copy(z.d))
+Base.copy(z::MultiVector) = MultiVector(_copy(z.X), copy(z.d), z.w)
 
 LinearAlgebra.dot(z::MultiVector, w::MultiVector) = _dot(z.X, w.X) + LinearAlgebra.dot(z.d, w.d)
 
