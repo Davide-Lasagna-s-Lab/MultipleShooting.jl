@@ -1,4 +1,4 @@
-using MultipleShootingV2
+using MultipleShooting
 using NKRoots: nkroot!, gram
 using LinearAlgebra
 using Random
@@ -280,9 +280,9 @@ end
     # ---- steps until the first three directions are accurate, and no more than the cap ----
     Random.seed!(2)
     S = Subspace(K, ks22; k=4)
-    MultipleShootingV2.update!(S, ks22; tol=1e-6, maxsteps=60, p=3)
+    MultipleShooting.update!(S, ks22; tol=1e-6, maxsteps=60, p=3)
     @test change(S; p=3) <= 1e-6 && S.steps < 60
-    @test_throws ErrorException MultipleShootingV2.update!(S, ks22; tol=0.0, maxsteps=3)
+    @test_throws ErrorException MultipleShooting.update!(S, ks22; tol=0.0, maxsteps=3)
     @test S.steps == 3
 end
 
@@ -300,7 +300,7 @@ end
         push!(W, w)
     end
     push!(W, MultiVector(zeros(3, 4), [1.0]))
-    E = reduce(hcat, [MultipleShootingV2._restrict(M, J*w) for w in W])
+    E = reduce(hcat, [MultipleShooting._restrict(M, J*w) for w in W])
     @test norm(Matrix(M.E)[:, 1:8] - E[:, 1:8]) < 1e-12*norm(E)
 
     # ---- the column of the period of E is f at the end points, that of the Jacobian the

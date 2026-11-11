@@ -9,7 +9,7 @@
 # The first prints the numbers quoted in the note and writes data.jls, the second the figures into
 # ../figures. They are two scripts since CairoMakie loads an FFT of its own, whose plan_rfft is
 # ambiguous with that of FFTW, on which the propagator of KS relies.
-using MultipleShootingV2
+using MultipleShooting
 using NKRoots: nkroot!, Trace
 using LinearAlgebra
 using Random

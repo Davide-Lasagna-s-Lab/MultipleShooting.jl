@@ -115,39 +115,39 @@ _stretched(P::LorenzPropagator, τ) =
     (dV, X, V) -> (lorenz_lin!(dV, X, V, P.ρ); dV .+= lorenz_rhs!(similar(X), X, P.ρ) ./ τ; dV)
 
 # ---- batched: all the states at once ----
-MultipleShootingV2.propagate!(P::LorenzPropagator, X::Batched, τ::Real) =
+MultipleShooting.propagate!(P::LorenzPropagator, X::Batched, τ::Real) =
     (rk4!(_rhs(P), X, τ, P.dt); X)
 
-MultipleShootingV2.tangent!(P::LorenzPropagator, X::Batched, V::Batched, τ::Real) =
+MultipleShooting.tangent!(P::LorenzPropagator, X::Batched, V::Batched, τ::Real) =
     (rk4!(_rhs(P), _lin(P), X, V, τ, P.dt); V)
 
-MultipleShootingV2.forced!(P::LorenzPropagator, X::Batched, V::Batched, τ::Real) =
+MultipleShooting.forced!(P::LorenzPropagator, X::Batched, V::Batched, τ::Real) =
     (rk4!(_rhs(P), _forced(P), X, V, τ, P.dt); V)
 
-MultipleShootingV2.dpropagate!(P::LorenzPropagator, X::Batched, V::Batched, τ::Real) =
+MultipleShooting.dpropagate!(P::LorenzPropagator, X::Batched, V::Batched, τ::Real) =
     (V .= 0; rk4!(_rhs(P), _stretched(P, τ), X, V, τ, P.dt); V)
 
-MultipleShootingV2.rhs!(P::LorenzPropagator, F::Batched, X::Batched) = lorenz_rhs!(F, X, P.ρ)
+MultipleShooting.rhs!(P::LorenzPropagator, F::Batched, X::Batched) = lorenz_rhs!(F, X, P.ρ)
 
 # ---- sliced: one state at a time ----
-MultipleShootingV2.propagate!(P::LorenzPropagator, X::Sliced, τ::Real) =
+MultipleShooting.propagate!(P::LorenzPropagator, X::Sliced, τ::Real) =
     (foreach(x -> rk4!(_rhs(P), x, τ, P.dt), X); X)
 
-MultipleShootingV2.tangent!(P::LorenzPropagator, X::Sliced, V::Sliced, τ::Real) =
+MultipleShooting.tangent!(P::LorenzPropagator, X::Sliced, V::Sliced, τ::Real) =
     (foreach((x, v) -> rk4!(_rhs(P), _lin(P), x, v, τ, P.dt), X, V); V)
 
-MultipleShootingV2.dpropagate!(P::LorenzPropagator, X::Sliced, V::Sliced, τ::Real) =
+MultipleShooting.dpropagate!(P::LorenzPropagator, X::Sliced, V::Sliced, τ::Real) =
     (foreach((x, v) -> (v .= 0; rk4!(_rhs(P), _stretched(P, τ), x, v, τ, P.dt)), X, V); V)
 
-MultipleShootingV2.rhs!(P::LorenzPropagator, F::Sliced, X::Sliced) =
+MultipleShooting.rhs!(P::LorenzPropagator, F::Sliced, X::Sliced) =
     (foreach((f, x) -> lorenz_rhs!(f, x, P.ρ), F, X); F)
 
 # ---- sliced, with one time per state: each state over its own time, with its own number of steps ----
-MultipleShootingV2.propagate!(P::LorenzPropagator, X::Sliced, τ::AbstractVector) =
+MultipleShooting.propagate!(P::LorenzPropagator, X::Sliced, τ::AbstractVector) =
     (foreach((x, t) -> rk4!(_rhs(P), x, t, P.dt), X, τ); X)
 
-MultipleShootingV2.tangent!(P::LorenzPropagator, X::Sliced, V::Sliced, τ::AbstractVector) =
+MultipleShooting.tangent!(P::LorenzPropagator, X::Sliced, V::Sliced, τ::AbstractVector) =
     (foreach((x, v, t) -> rk4!(_rhs(P), _lin(P), x, v, t, P.dt), X, V, τ); V)
 
-MultipleShootingV2.dpropagate!(P::LorenzPropagator, X::Sliced, V::Sliced, τ::AbstractVector) =
+MultipleShooting.dpropagate!(P::LorenzPropagator, X::Sliced, V::Sliced, τ::AbstractVector) =
     (foreach((x, v, t) -> (v .= 0; rk4!(_rhs(P), _stretched(P, t), x, v, t, P.dt)), X, V, τ); V)

@@ -109,7 +109,7 @@ function _etdrk4(Λ, h; M::Int=32)
     return E, E₂, Q, f₁, f₂, f₃
 end
 
-function MultipleShootingV2.propagate!(P::KSPropagator, X::AbstractMatrix, τ::Real)
+function MultipleShooting.propagate!(P::KSPropagator, X::AbstractMatrix, τ::Real)
     n = max(1, ceil(Int, τ/P.dt))
     E, E₂, Q, f₁, f₂, f₃ = _etdrk4(P.Λ, τ/n)
 
@@ -133,7 +133,7 @@ function MultipleShootingV2.propagate!(P::KSPropagator, X::AbstractMatrix, τ::R
     return _ks_grid!(X, W, v̂)
 end
 
-function MultipleShootingV2.tangent!(P::KSPropagator, X::AbstractMatrix, V::AbstractMatrix, τ::Real)
+function MultipleShooting.tangent!(P::KSPropagator, X::AbstractMatrix, V::AbstractMatrix, τ::Real)
     n = max(1, ceil(Int, τ/P.dt))
     E, E₂, Q, f₁, f₂, f₃ = _etdrk4(P.Λ, τ/n)
 
@@ -174,7 +174,7 @@ function MultipleShootingV2.tangent!(P::KSPropagator, X::AbstractMatrix, V::Abst
     return _ks_grid!(V, W, δv̂)
 end
 
-function MultipleShootingV2.rhs!(P::KSPropagator, F::AbstractMatrix, X::AbstractMatrix)
+function MultipleShooting.rhs!(P::KSPropagator, F::AbstractMatrix, X::AbstractMatrix)
     # ---- Λ û + N(û), on the modes kept ----
     W = _ks_work(X)
     v̂ = _ks_fourier!(similar(W.ŵ), P, W, X)
@@ -183,7 +183,7 @@ function MultipleShootingV2.rhs!(P::KSPropagator, F::AbstractMatrix, X::Abstract
     return _ks_grid!(F, W, P.Λ .* v̂ .+ N̂)
 end
 
-function MultipleShootingV2.shift!(P::KSPropagator, X::AbstractMatrix, s)
+function MultipleShooting.shift!(P::KSPropagator, X::AbstractMatrix, s)
     # ---- û_k e^{iκ s}, the one shift s[1] ----
     W = _ks_work(X)
     v̂ = _ks_fourier!(similar(W.ŵ), P, W, X)
@@ -191,7 +191,7 @@ function MultipleShootingV2.shift!(P::KSPropagator, X::AbstractMatrix, s)
     return _ks_grid!(X, W, exp.(P.D .* s[1]) .* v̂)
 end
 
-function MultipleShootingV2.dshift!(P::KSPropagator, G::AbstractMatrix, X::AbstractMatrix, j::Int)
+function MultipleShooting.dshift!(P::KSPropagator, G::AbstractMatrix, X::AbstractMatrix, j::Int)
     # ---- the generator ∂ₓ, iκ û_k ----
     W = _ks_work(X)
     v̂ = _ks_fourier!(similar(W.ŵ), P, W, X)

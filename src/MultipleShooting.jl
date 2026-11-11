@@ -1,6 +1,6 @@
 # Multiple shooting for periodic orbits, matrix free: the unknowns, the residual and the product of
 # its Jacobian with a vector, on top of a propagator that advances batches of states.
-module MultipleShootingV2
+module MultipleShooting
 
 import LinearAlgebra
 import NKRoots
