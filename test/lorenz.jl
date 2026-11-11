@@ -110,6 +110,10 @@ _rhs(P::LorenzPropagator)    = (dX, X) -> lorenz_rhs!(dX, X, P.ρ)
 _lin(P::LorenzPropagator)    = (dV, X, V) -> lorenz_lin!(dV, X, V, P.ρ)
 _forced(P::LorenzPropagator) = (dV, X, V) -> lorenz_forced!(dV, X, V, P.ρ)
 
+# the linearisation forced by the right-hand side over the time τ, for the derivative in τ
+_stretched(P::LorenzPropagator, τ) =
+    (dV, X, V) -> (lorenz_lin!(dV, X, V, P.ρ); dV .+= lorenz_rhs!(similar(X), X, P.ρ) ./ τ; dV)
+
 # ---- batched: all the states at once ----
 MultipleShootingV2.propagate!(P::LorenzPropagator, X::Batched, τ::Real) =
     (rk4!(_rhs(P), X, τ, P.dt); X)
@@ -120,6 +124,9 @@ MultipleShootingV2.tangent!(P::LorenzPropagator, X::Batched, V::Batched, τ::Rea
 MultipleShootingV2.forced!(P::LorenzPropagator, X::Batched, V::Batched, τ::Real) =
     (rk4!(_rhs(P), _forced(P), X, V, τ, P.dt); V)
 
+MultipleShootingV2.dpropagate!(P::LorenzPropagator, X::Batched, V::Batched, τ::Real) =
+    (V .= 0; rk4!(_rhs(P), _stretched(P, τ), X, V, τ, P.dt); V)
+
 MultipleShootingV2.rhs!(P::LorenzPropagator, F::Batched, X::Batched) = lorenz_rhs!(F, X, P.ρ)
 
 # ---- sliced: one state at a time ----
@@ -128,6 +135,9 @@ MultipleShootingV2.propagate!(P::LorenzPropagator, X::Sliced, τ::Real) =
 
 MultipleShootingV2.tangent!(P::LorenzPropagator, X::Sliced, V::Sliced, τ::Real) =
     (foreach((x, v) -> rk4!(_rhs(P), _lin(P), x, v, τ, P.dt), X, V); V)
+
+MultipleShootingV2.dpropagate!(P::LorenzPropagator, X::Sliced, V::Sliced, τ::Real) =
+    (foreach((x, v) -> (v .= 0; rk4!(_rhs(P), _stretched(P, τ), x, v, τ, P.dt)), X, V); V)
 
 MultipleShootingV2.rhs!(P::LorenzPropagator, F::Sliced, X::Sliced) =
     (foreach((f, x) -> lorenz_rhs!(f, x, P.ρ), F, X); F)

@@ -11,8 +11,13 @@
 """
     MultiVector(X, d)
 
-The unknowns of multiple shooting, the seeds and the scalars. It broadcasts like a vector,
-`w .= α .* z .+ w`, on the seeds and the scalars separately.
+The unknowns of multiple shooting, the seeds and the scalars,
+
+    z = (u₁, …, u_m, T, s₁, …, s_c),
+
+with the inner product of the flattened vectors, ⟨z, w⟩ = Σᵢ ⟨uᵢ, wᵢ⟩ + Σₖ dₖ d′ₖ over the
+scalars. It broadcasts like a vector, `w .= α .* z .+ w`, on the seeds and the scalars
+separately.
 
 # Arguments
 - `X`: the seeds, a batch of m states, [`Batched`](@ref) or [`Sliced`](@ref).

@@ -15,10 +15,14 @@
 """
     gmres(A!, b; tol=1e-8, maxiter=100) -> (x, H, residuals)
 
-The solution of `A x = b` by GMRES from `x = 0`, without restarts, with the history of the run.
-It stops when the residual falls below `tol ‖b‖`, or after `maxiter` iterations, one product
-with `A` each. The Hessenberg matrix `H` of the Arnoldi relation `A Qₙ = Qₙ₊₁ H` holds in its
-leading square blocks the Ritz values of every iteration, by [`ritz_values`](@ref).
+The solution of `A x = b` by GMRES from `x = 0`, without restarts, with the history of the run,
+
+    A Qₙ = Qₙ₊₁ Hₙ,   xₙ = argmin ‖b - A x‖  over x in span(Qₙ),   Qₙ = (q₁, …, qₙ),
+
+with Qₙ an orthonormal basis of the Krylov space span(b, A b, …, Aⁿ⁻¹ b) and Hₙ upper
+Hessenberg, (n + 1) × n. It stops when the residual falls below `tol ‖b‖`, or after `maxiter`
+iterations, one product with `A` each. The leading square blocks of `H` hold the Ritz values of
+every iteration, by [`ritz_values`](@ref).
 
 # Arguments
 - `A!`: the linear operator, applied in place as `A!(out, v) -> out`.
@@ -80,8 +84,12 @@ end
     ritz_values(H, n=size(H, 2))
 
 The Ritz values of the operator after `n` iterations of [`gmres`](@ref): the eigenvalues of the
-leading `n × n` block of its Hessenberg matrix, `Qₙᵀ A Qₙ`, the operator restricted to the
-Krylov space of dimension `n`. Complex in general, sorted by real part, then imaginary part.
+leading `n × n` block of its Hessenberg matrix, the operator restricted to the Krylov space of
+dimension `n`,
+
+    Hₙ y = θ y,   Hₙ = H[1:n, 1:n] = Qₙᵀ A Qₙ.
+
+Complex in general, sorted by real part, then imaginary part.
 
 # Arguments
 - `H::AbstractMatrix`: the Hessenberg matrix that [`gmres`](@ref) returns.

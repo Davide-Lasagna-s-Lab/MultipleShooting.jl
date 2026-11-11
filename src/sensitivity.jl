@@ -14,27 +14,17 @@
 # the system is solved by GMRES (gmres.jl), one product with the Jacobian per iteration.
 
 """
-    forced!(P, X, V, τ) -> V
-
-As [`tangent!`](@ref), with the tangent equation forced by the derivative of the right-hand side
-in the parameter, `v' = ∂f/∂x(x) v + ∂f/∂p(x)`. From `V = 0` it gives the derivative of the end
-points in the parameter. For [`tangent_sensitivity`](@ref) only.
-
-# Arguments
-- `P`: the propagator, at the value of the parameter.
-- `X`: a batch of states, overwritten with their images.
-- `V`: a batch like `X`, overwritten with the solutions of the forced tangent equation.
-- `τ::Real`: the time.
-"""
-function forced! end
-
-"""
     tangent_sensitivity(P, z; tol=1e-10, maxiter=200) -> dz
 
 The derivative `dz/dp` of the converged orbit `z` of the propagator `P` in the parameter of the
 equation, as a [`MultiVector`](@ref): the derivatives of the seeds, of the period and of the
-shifts. Those of the period and of the shifts do not depend on the phase of the orbit; those of
-the seeds do, and keep the phase conditions at `z`. The Jacobian is built at `z`, with one
+shifts, the solution of
+
+    J dz/dp = -∂F/∂p,   (∂F/∂p)ᵢ₊₁ = ∂φ_τ(uᵢ)/∂p,   (∂F/∂p)₁ = S(s) ∂φ_τ(u_m)/∂p,
+
+with J the [`Jacobian`](@ref) at the orbit and the derivatives of the end points from
+[`forced!`](@ref). Those of the period and of the shifts do not depend on the phase of the orbit;
+those of the seeds do, and keep the phase conditions at `z`. The Jacobian is built at `z`, with one
 integration of the seeds, the right-hand side is one more by `forced!`, and the system is solved
 by GMRES.
 

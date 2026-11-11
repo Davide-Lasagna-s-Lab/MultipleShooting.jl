@@ -20,17 +20,23 @@
 #     E[i + 1, T] = Uᵢ₊₁ᵀ f(φ_τ(uᵢ))/m,   E[1, sⱼ] = U₁ᵀ gⱼ(S(s) φ_τ(u_m)),
 #     E[T, 1] = f(u₁)ᵀ U₁,   E[sⱼ, 1] = gⱼ(u₁)ᵀ U₁,
 #
-# with f and the generators at the end points of the segments and at the first seed. The subspace
-# step integrates the seeds along with the bases, and leaves the end points φ_τ(uᵢ), so that these
-# need no integration of their own: an update of the preconditioner integrates the seeds k times,
-# those of its subspace step. E has m k + 1 + nshifts rows, and is factorised by sparse QR, since
-# Gaussian elimination is unstable on cyclic block-bidiagonal matrices.
+# with f and the generators at the end points of the segments and at the first seed: the column of
+# the period is f at the end points, the default of dpropagate!, enough for a preconditioner. The
+# subspace step integrates the seeds along with the bases, and leaves the end points φ_τ(uᵢ), so
+# that these need no integration of their own: an update of the preconditioner integrates the
+# seeds k times, those of its subspace step. E has m k + 1 + nshifts rows, and is factorised by
+# sparse QR, since Gaussian elimination is unstable on cyclic block-bidiagonal matrices.
 
 """
-    Preconditioner(P, z; k, tol=1e-3, maxsteps=20, p=k)
+    Preconditioner(P, z; k, tol=1e-8, maxsteps=100, p=k)
 
 A right preconditioner of the Jacobian of the propagator `P` at `z`, on the leading directions
-of the loop, from a [`Subspace`](@ref) along it, with random bases at the start. Every time it
+of the loop, from a [`Subspace`](@ref) along it, with random bases at the start: with Uᵢ the
+bases of `k` directions at the seeds,
+
+    W = blockdiag(U₁, …, U_m, I),   E = Wᵀ J W,   M⁻¹ = -(I - W Wᵀ) + W E⁻¹ Wᵀ,
+
+-I outside the span of W and an exact solve with E on it. Every time it
 is built or moved, its subspace makes steps until the bases are accurate. For
 `nkroot!(F, J, z; precond=M)` of NKRoots.jl: `update!(M, z)` moves it to `z`, `ldiv!(out, M, v)`
 applies `M⁻¹`, and `gram(M, Q)` gives the root of the Gram matrix of the vectors `M⁻¹ qⱼ`. Every
@@ -41,9 +47,9 @@ subspace step integrates the seeds k times.
   periodic orbits.
 - `z::MultiVector`: the point, kept, not copied.
 - `k::Int`: the number of directions per seed.
-- `tol::Real=1e-3`: the accuracy of the bases, absolute, as [`change`](@ref).
-- `maxsteps::Int=20`: the most subspace steps per update; `M.S.steps` holds the number of the
-  last one.
+- `tol::Real=1e-8`: the accuracy of the bases, absolute, as [`change`](@ref).
+- `maxsteps::Int=100`: the most subspace steps per update, an error if the bases are not accurate
+  by then; `M.S.steps` holds the number of the last one.
 - `p::Int=k`: the number of leading directions whose accuracy is tested.
 """
 mutable struct Preconditioner{ST<:Subspace}
@@ -55,8 +61,8 @@ mutable struct Preconditioner{ST<:Subspace}
            p::Int                                        # the directions whose accuracy is tested
 
     function Preconditioner(P, z::MultiVector; k::Int,
-                                               tol::Real=1e-3,
-                                               maxsteps::Int=20,
+                                               tol::Real=1e-8,
+                                               maxsteps::Int=100,
                                                p::Int=k)
         # ---- input checks ----
         1 <= p <= k ||
@@ -180,9 +186,13 @@ end
 """
     ldiv!(out, M::Preconditioner, v) -> out
 
-`out = M⁻¹ v = -(I - W Wᵀ) v + W E⁻¹ Wᵀ v`: minus `v` outside the span of the bases, and the solve
-with the coarse matrix on it. With the coefficients `g = Wᵀ v` and `y = E⁻¹ g`,
-`out = -v + W (g + y)` on the seeds and `y` on the period and the shifts.
+Minus `v` outside the span of the bases, and the solve with the coarse matrix on it,
+
+    out = M⁻¹ v = -(I - W Wᵀ) v + W E⁻¹ Wᵀ v,
+
+computed from the coefficients g = Wᵀ v and y = E⁻¹ g as
+
+    out = -v + W (g + y)  on the seeds,   out = y  on the period and the shifts.
 
 # Arguments
 - `out::MultiVector`: overwritten with `M⁻¹ v`.
@@ -216,10 +226,13 @@ end
     gram(M::Preconditioner, Q) -> R
 
 The upper triangular `R` with `RᵀR` the Gram matrix of the vectors `M⁻¹ qⱼ`, from their
-coefficients alone, as `nkroot!` of NKRoots.jl asks for it. With `Γ = Wᵀ Q` and `Θ = E⁻¹ Γ` that
-matrix is `I - ΓᵀΓ + ΘᵀΘ`; `R` comes from a QR of `[L; Θ]` with `LᵀL = I - ΓᵀΓ`, from the SVD of
-`Γ`, whose singular values are the cosines of the angles between the vectors and the span of
-`W`, so that the lengths of `Θ` are not squared.
+coefficients alone, as `nkroot!` of NKRoots.jl asks for it,
+
+    RᵀR = (M⁻¹Q)ᵀ(M⁻¹Q) = I - ΓᵀΓ + ΘᵀΘ,   Γ = Wᵀ Q,   Θ = E⁻¹ Γ,
+
+the two parts of each M⁻¹ qⱼ being orthogonal. `R` comes from a QR of `[L; Θ]` with
+`LᵀL = I - ΓᵀΓ`, from the SVD of `Γ`, whose singular values are the cosines of the angles between
+the vectors and the span of `W`, so that the lengths of `Θ` are not squared.
 
 # Arguments
 - `M::Preconditioner`: the preconditioner.

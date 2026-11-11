@@ -16,8 +16,12 @@
 
 The multiple-shooting residual of the propagator `P`, called as `F(r, z)`, as `nkroot!` of
 NKRoots.jl calls it. In the row of segment i + 1 it holds the end of segment i minus the seed of
-segment i + 1, φ_τ(uᵢ) - uᵢ₊₁, with τ = T/m, the end of the last segment shifted by the shifts of
-`z`, and its scalar part is zero. One integration of the seeds per call.
+segment i + 1, and in row 1 the end of the last segment, shifted by the shifts of `z`, minus the
+first seed,
+
+    rᵢ₊₁ = φ_τ(uᵢ) - uᵢ₊₁,   i = 1, …, m - 1,   r₁ = S(s) φ_τ(u_m) - u₁,   τ = T/m,
+
+and its scalar part is zero. One integration of the seeds per call.
 
 # Arguments
 - `P`: the propagator, with `propagate!`, and `shift!` for relative periodic orbits.

@@ -42,8 +42,8 @@ of tangent vectors in time. On top of it the package builds the residual of mult
 the product of its Jacobian with a vector, which is all that a Newton--Krylov method needs. The
 Newton--Krylov hookstep of \code{NKRoots.jl} then solves the equations. At a converged orbit the
 same Jacobian gives the derivative of the orbit with respect to a parameter of the equation. Along
-the loop of segments the package also iterates subspaces of tangent directions, which a
-preconditioner may later use.
+the loop of segments the package also iterates subspaces of tangent directions, on which its
+preconditioner solves exactly.
 
 We present each piece as the code computes it, with the notation of the comments in the sources,
 so that the note and the code can be read side by side. Section~\ref{sec:setting} sets the problem.
@@ -53,7 +53,7 @@ Jacobian follow in sections~\ref{sec:residual} and~\ref{sec:jacobian}, and
 section~\ref{sec:newton} recalls how the Newton--Krylov iterations use them.
 Section~\ref{sec:sensitivity} derives the sensitivity of an orbit to a parameter.
 Sections~\ref{sec:subspace} and~\ref{sec:accuracy} treat the subspace iteration and the measure of
-its accuracy. Section~\ref{sec:tests} closes with the two test problems, the Lorenz system and the
+its accuracy, and section~\ref{sec:preconditioner} the preconditioner built on it. Section~\ref{sec:tests} closes with the two test problems, the Lorenz system and the
 Kuramoto--Sivashinsky equation, and with what they show.
 
 \section{Periodic and relative periodic orbits}
@@ -428,7 +428,8 @@ the seeds advanced again together with the vector,
 \end{equation}
 where $\Psi V = (\psi_1 v_1, \dots, \psi_m v_m)$ comes from one call of \code{tangent!} along a copy
 of the seeds, $F_{\mathrm{e}} = (f(\varphi_\tau(u_1)), \dots, f(\varphi_\tau(u_{m-1})), f(w))$
-holds the time derivative at the ends of the segments, the last shifted, $G_j = g_j(w)$, and $E_m$
+holds the time derivative at the ends of the segments, the last shifted, the default of the
+derivatives of the ends with respect to $\tau$ that \code{dpropagate!} returns, $G_j = g_j(w)$, and $E_m$
 places a state in the last slot. The ends of the segments do not depend on $v$. \code{update!(J,
 z)} computes $F_{\mathrm{e}}$, the $G_j$, $f(u_1)$ and $g_j(u_1)$ when $J$ moves to a new point,
 with one integration of the seeds, and keeps $z$ itself rather than a copy. Each product then
@@ -437,11 +438,23 @@ the segments over $\tau$, or a time $T$ integrated in all. This avoids storing t
 every segment, at the price of the nonlinear part of the integration in every product.
 
 One remark is in order on the column of the period. The tangent maps are those of the numerical
-scheme, but the column of the period uses $f$ of the continuous system. The derivative of the
-discrete map with respect to its length differs from $f$ at the end point by a quantity of the
-order of the error of the scheme. The Jacobian is thus exact for the discrete residual in every
-column but that of the period, where it carries this error. We return to its effect on the
-Newton iterations in section~\ref{sec:tests}.
+scheme, and the column of the period comes from \code{dpropagate!}, which advances the seeds and
+returns the derivatives of the end points with respect to $\tau$. Its default is $f$ at the end
+points, the derivative of the continuous system, which differs from that of the discrete map by a
+quantity of the order of the error of the scheme, so that the Jacobian then carries this error in
+that column alone. A propagator can give the derivative of its own scheme instead. Over
+$s = t/\tau \in [0, 1]$ the state solves $dx/ds = \tau f(x)$, and $\tau$ becomes a parameter of the
+vector field. For a scheme that sees $\tau$ only through the products of its steps with $f$, such
+as a Runge--Kutta scheme with a fixed number of steps, the derivative is then the tangent equation
+from zero forced by $f/\tau$,
+\begin{equation}
+  w' = \partial f(x)\, w + \frac{f(x)}{\tau}, \qquad w(0) = 0, \qquad
+  \partial_\tau \varphi_\tau(u) = w(\tau),
+  \label{eq:dpropagate}
+\end{equation}
+integrated by the stages of the scheme, each forced at its own point, in the same integration as
+the end points. The propagator of the Lorenz system of section~\ref{sec:tests} does so. We return
+to the effect of the column on the Newton iterations in the same section.
 
 \section{Newton--Krylov iterations}
 \label{sec:newton}
@@ -697,6 +710,124 @@ $\epsilon\,\|V\|$. The second is that $p$ should not split
 a complex pair of multipliers, as Lust also requires. The two directions of a pair rotate into
 each other at every step, so that the span of only one of them never settles.
 
+\section{The preconditioner}
+\label{sec:preconditioner}
+
+The tangent maps round the loop shape the spectrum of the Jacobian, and with it the iterations of
+GMRES. Written seed by seed, an eigenvector $x = (x_1, \dots, x_m)$ of the block of $J$ on the
+seeds, minus the identity plus the tangent maps, with eigenvalue $\zeta$ satisfies
+$\psi_i x_i = (1 + \zeta)\, x_{i+1}$ and $\tilde\psi_m x_m = (1 + \zeta)\, x_1$, so that once round
+the loop
+\begin{equation}
+  M_1 x_1 = (1 + \zeta)^m x_1, \qquad |1 + \zeta| = |\Lambda_j|^{1/m} .
+  \label{eq:circles}
+\end{equation}
+Each multiplier gives $m$ eigenvalues, evenly spaced on a circle about $-1$. The circles of the
+multipliers on the unit circle or outside it enclose the origin or pass through it, and GMRES
+needs about $m$ iterations for each of them, while the contracted directions give circles that
+shrink to the point $-1$. The preconditioner solves exactly on the span of the bases of
+section~\ref{sec:subspace}, which hold the first kind, and leaves the rest to GMRES.
+
+With the bases $U_i$, orthonormal $n \times k$ at every seed, let
+\begin{equation}
+  W = \mathrm{blockdiag}(U_1, \dots, U_m, I_{1 + c}), \qquad E = W^{\!\top} J W ,
+\end{equation}
+with the identity on the period and the shifts, so that $W$ has orthonormal columns and $E$, with
+$mk + 1 + c$ rows, is $J$ restricted to the span of $W$. The preconditioner is
+\begin{equation}
+  M^{-1} = -(I - WW^{\!\top}) + W E^{-1} W^{\!\top} ,
+  \label{eq:precond}
+\end{equation}
+the inverse of the diagonal of $J$, $-I$, outside the span of $W$, and an exact solve with $E$ on
+it. When the spans are invariant, $JW = WE$, and then $JM^{-1}W = W$: the directions of the bases
+reach GMRES at one, while $JM^{-1}v = -Jv$ for every $v$ orthogonal to them.
+
+$E$ comes with no integration of its own. A subspace step carries the bases $U_i$ to their images
+and keeps their coordinates in the bases where they land, $U_{i+1}^{\!\top} \psi_i U_i$, for the
+measure of section~\ref{sec:accuracy}. These are the blocks of $E$ below the diagonal. The step
+also leaves the end points of the segments, at which $f$ and the generators give the columns of
+the period and of the shifts. Hence, as figure~\ref{fig:coarse} shows for $m = 4$,
+\begin{equation}
+\begin{aligned}
+  E_{i+1,i} &= U_{i+1}^{\!\top} \psi_i U_i, \qquad E_{1,m} = U_1^{\!\top} \tilde\psi_m U_m, \qquad
+  E_{i,i} = -I, \\
+  E_{i+1,T} &= U_{i+1}^{\!\top} f(\varphi_\tau(u_i))/m, \qquad E_{1,T} = U_1^{\!\top} f(w)/m, \qquad
+  E_{1,s_j} = U_1^{\!\top} g_j(w), \\
+  E_{T,1} &= f(u_1)^{\!\top} U_1, \qquad E_{s_j,1} = g_j(u_1)^{\!\top} U_1,
+\end{aligned}
+\end{equation}
+and the other blocks are zero. The column of the period is $f$ at the end points, the default of
+\code{dpropagate!}, which is enough for a preconditioner. $E$ is sparse, and is factorised once by
+sparse QR.
+
+\begin{figure}
+  \centering
+  \begin{tikzpicture}[cell/.style={minimum width=1.55cm, minimum height=0.75cm, inner sep=0pt,
+      font=\scriptsize}]
+    \def\w{1.55}
+    \def\h{0.75}
+    % frame and grid
+    \fill[gray!6] (0, 0) rectangle (6*\w, -6*\h);
+    \draw[gray!50] (0, 0) grid[xstep=\w, ystep=\h] (6*\w, -6*\h);
+    \draw[thick] (4*\w, 0) -- (4*\w, -6*\h);
+    \draw[thick] (0, -4*\h) -- (6*\w, -4*\h);
+    % blocks
+    \newcommand{\cblk}[4]{\fill[#4] ({(#2-1)*\w}, {-(#1-1)*\h}) rectangle ({#2*\w}, {-#1*\h});
+      \node[cell] at ({(#2-0.5)*\w}, {-(#1-0.5)*\h}) {#3};}
+    \cblk{1}{1}{$-I$}{gray!25}
+    \cblk{2}{2}{$-I$}{gray!25}
+    \cblk{3}{3}{$-I$}{gray!25}
+    \cblk{4}{4}{$-I$}{gray!25}
+    \cblk{2}{1}{$U_2^{\!\top}\psi_1 U_1$}{c1!25}
+    \cblk{3}{2}{$U_3^{\!\top}\psi_2 U_2$}{c1!25}
+    \cblk{4}{3}{$U_4^{\!\top}\psi_3 U_3$}{c1!25}
+    \cblk{1}{4}{$U_1^{\!\top}S\psi_4 U_4$}{c1!25}
+    \cblk{1}{5}{$U_1^{\!\top}f(w)/m$}{c2!30}
+    \cblk{2}{5}{$U_2^{\!\top}f(e_1)/m$}{c2!30}
+    \cblk{3}{5}{$U_3^{\!\top}f(e_2)/m$}{c2!30}
+    \cblk{4}{5}{$U_4^{\!\top}f(e_3)/m$}{c2!30}
+    \cblk{1}{6}{$U_1^{\!\top}g(w)$}{c3!30}
+    \cblk{5}{1}{$f(u_1)^{\!\top}U_1$}{c2!30}
+    \cblk{6}{1}{$g(u_1)^{\!\top}U_1$}{c3!30}
+    % labels
+    \foreach \j/\l in {1/a_1, 2/a_2, 3/a_3, 4/a_4, 5/\delta T, 6/\delta s} {
+      \node[font=\small] at ({(\j-0.5)*\w}, 0.3) {$\l$};
+    }
+    \foreach \i/\l in {1/1, 2/2, 3/3, 4/4, 5/T, 6/s} {
+      \node[font=\small, anchor=east] at (-0.1, {-(\i-0.5)*\h}) {$\l$};
+    }
+  \end{tikzpicture}
+  \caption{The blocks of the coarse matrix $E = W^{\!\top} J W$ for $m = 4$ segments and one shift,
+  with $S = S(s)$, $e_i = \varphi_\tau(u_i)$ and $w = S(s)\,e_4$, as in figure~\ref{fig:jacobian}.
+  The columns hold the coordinates $a_i$ of the seeds in their bases, then the period and the
+  shift. The blocks on the seeds are $k \times k$. All come from one subspace step.}
+  \label{fig:coarse}
+\end{figure}
+
+Applying \eqref{eq:precond} costs $k$ inner products per seed and one solve with $E$. With
+$g = W^{\!\top} v$ and $y = E^{-1} g$,
+\begin{equation}
+  M^{-1} v = -v + W (g + y)
+\end{equation}
+on the seeds, and $y$ on the period and the shifts. The hookstep of \code{NKRoots.jl} bounds the
+step $M^{-1} Q_n y$ in a trust region, which needs the lengths of the vectors $M^{-1} q_j$. For
+orthonormal $q_j$, with $\Gamma = W^{\!\top} Q_n$ and $\Theta = E^{-1} \Gamma$, the two parts of
+$M^{-1} q_j$ in \eqref{eq:precond} are orthogonal, and
+\begin{equation}
+  (M^{-1} Q_n)^{\!\top} (M^{-1} Q_n) = I - \Gamma^{\!\top} \Gamma + \Theta^{\!\top} \Theta .
+\end{equation}
+\code{gram(M, Q)} returns the triangular root of this matrix from a QR factorisation of
+$[L; \Theta]$, with $L^{\!\top} L = I - \Gamma^{\!\top} \Gamma$ from the singular values of $\Gamma$,
+the cosines of the angles between the $q_j$ and the span of $W$, so that the lengths in $\Theta$
+are not squared. With \code{flexible=true}, \code{NKRoots.jl} keeps the vectors $M^{-1} q_j$
+themselves and needs no Gram matrix.
+
+\code{update!(M, z)}, which \code{nkroot!} calls at every iteration, moves the subspace to the new
+point and makes steps there from the bases of the point before, at least one, until the measure
+of section~\ref{sec:accuracy} on the first $p$ directions falls below a tolerance. It then
+assembles and factorises $E$ again. Each subspace step integrates the seeds with $k$ directions,
+the cost of $k$ products with $J$, against one product per iteration of GMRES.
+
 \section{Two test problems}
 \label{sec:tests}
 
@@ -849,13 +980,15 @@ checks the generator, and not the time derivative, against the span of the bases
 
 \section{Closing remarks}
 
-The package now holds the residual of multiple shooting, its exact matrix-free Jacobian, up to the
-column of the period, the sensitivity of an orbit to a parameter, and a subspace iteration with
+The package now holds the residual of multiple shooting, its matrix-free Jacobian, exact for the
+discrete residual when the propagator gives the derivative of its scheme in the length of a
+segment, the sensitivity of an orbit to a parameter, and a subspace iteration with
 Lust's measure of accuracy but without his projection step, all built on a few functions of a
 propagator that acts on batches of states. Each piece treats the $m$ segments at
 once, and the subspace iteration pays for this with time integrated, as section
-\ref{sec:subspace} discusses. The bases are the natural input of a preconditioner that acts on the
-unstable and neutral directions of the loop, which we leave for future work.
+\ref{sec:subspace} discusses. The bases are the input of the preconditioner of section~\ref{sec:preconditioner}, which solves
+exactly on the unstable and neutral directions of the loop and leaves the contracted ones to
+GMRES.
 
 \bibliographystyle{plainnat}
 \bibliography{refs}

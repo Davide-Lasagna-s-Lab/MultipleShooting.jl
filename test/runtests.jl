@@ -127,6 +127,29 @@ end
 end
 
 
+@testset "period column                            " begin
+    # ---- with a step of 10⁻², the column of the period against central differences of the residual
+    #      in T at the same number of steps: dpropagate! of the Lorenz propagator, the forced
+    #      tangent, is the derivative of the integrator, the default at the end points only up to
+    #      the error of the scheme ----
+    Q = LorenzPropagator(1e-2, 28.0)
+    Random.seed!(1)
+    w  = MultiVector(ab.X .+ 1e-2 .* randn(3, 4), copy(ab.d))
+    eT = MultiVector(zeros(3, 4), [1.0])
+    flat(v)     = [vec(v.X); v.d]
+    residual(y) = flat(Residual(Q)(similar(y), y))
+    D = (residual(w .+ 1e-6 .* eT) .- residual(w .- 1e-6 .* eT)) ./ 2e-6
+    @test norm(flat(Jacobian(Q, w)*eT) - D) < 1e-8*norm(D)
+
+    X = copy(w.X)
+    V = invoke(dpropagate!, Tuple{Any, Any, Any, Real}, Q, X, similar(X), period(w)/4)
+    @test norm(vec(circshift(V, (0, 1)))/4 - D[1:12]) > 1e-6*norm(D)
+
+    # ---- the same in the sliced layout ----
+    @test reduce(hcat, (Jacobian(Q, sliced(w))*sliced(eT)).X) ≈ (Jacobian(Q, w)*eT).X
+end
+
+
 @testset "subspace iteration                       " begin
     # ---- on the orbit with k = 2, in both layouts from the same random bases ----
     Random.seed!(2)
@@ -216,7 +239,7 @@ end
     S = Subspace(K, ks22; k=4)
     MultipleShootingV2.update!(S, ks22; tol=1e-6, maxsteps=60, p=3)
     @test change(S; p=3) <= 1e-6 && S.steps < 60
-    MultipleShootingV2.update!(S, ks22; tol=0.0, maxsteps=3)
+    @test_throws ErrorException MultipleShootingV2.update!(S, ks22; tol=0.0, maxsteps=3)
     @test S.steps == 3
 end
 
@@ -235,7 +258,11 @@ end
     end
     push!(W, MultiVector(zeros(3, 4), [1.0]))
     E = reduce(hcat, [MultipleShootingV2._restrict(M, J*w) for w in W])
-    @test norm(Matrix(M.E) - E) < 1e-12*norm(E)
+    @test norm(Matrix(M.E)[:, 1:8] - E[:, 1:8]) < 1e-12*norm(E)
+
+    # ---- the column of the period of E is f at the end points, that of the Jacobian the
+    #      derivative of the integrator: they differ by the error of the scheme ----
+    @test norm(Matrix(M.E)[:, 9] - E[:, 9]) < 1e-6*norm(E)
 
     # ---- M⁻¹ against the dense -(I - W Wᵀ) + W E⁻¹ Wᵀ, and the root of the Gram matrix of the
     #      vectors M⁻¹ qⱼ against that matrix itself, for three orthonormal qⱼ ----
@@ -257,4 +284,29 @@ end
     Jk = Jacobian(K, z)
     @test nkroot!(Residual(K), Jk, z; precond=Preconditioner(K, z; k=4), flexible=true, krylov_dim=60,
                   krylov_tol=1e-8, Δ=1.0, tol=1e-10, maxiter=40, verbose=false).status === :converged
+end
+
+
+@testset "Jacobian by finite differences           " begin
+    # ---- off the orbit, its products against those of the tangent equation, in both layouts ----
+    Random.seed!(1)
+    w = MultiVector(ab.X .+ 1e-2 .* randn(3, 4), copy(ab.d))
+    v = MultiVector(randn(3, 4), [0.3])
+    flat(u) = [vec(u.X); u.d]
+    J = JacobianFD(L, w)
+    @test norm(flat(J*v) - flat(Jacobian(L, w)*v)) < 1e-6*norm(flat(Jacobian(L, w)*v))
+    @test norm(flat(JacobianFD(L, w; difference=:central)*v) - flat(Jacobian(L, w)*v)) <
+          1e-8*norm(flat(Jacobian(L, w)*v))
+    @test reduce(hcat, (JacobianFD(L, sliced(w))*sliced(v)).X) ≈ (J*v).X
+
+    # ---- the searches of AB and of the KS orbit, with a shift, find the same orbits ----
+    z = copy(guess)
+    @test nkroot!(F, JacobianFD(L, z), z; krylov_dim=20, krylov_tol=1e-8, Δ=1.0, tol=1e-10, maxiter=50,
+                  verbose=false).status === :converged
+    @test abs(period(z) - period(ab)) < 1e-8
+    z = copy(ks22_guess)
+    @test nkroot!(Residual(K), JacobianFD(K, z), z; krylov_dim=60, krylov_tol=1e-8, Δ=1.0, tol=1e-10,
+                  maxiter=40, verbose=false).status === :converged
+    @test abs(period(z) - period(ks22)) < 1e-6
+    @test abs(shift(z, 1) - shift(ks22, 1)) < 1e-6
 end

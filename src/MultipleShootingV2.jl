@@ -13,6 +13,7 @@ export propagate!,
        forced!,
        shift!,
        dshift!,
+       dpropagate!,
        Batched,
        Sliced,
        MultiVector,
@@ -22,6 +23,7 @@ export propagate!,
        shift,
        Residual,
        Jacobian,
+       JacobianFD,
        Subspace,
        iterate!,
        change,
@@ -35,6 +37,7 @@ include("interface.jl")
 include("multivector.jl")
 include("residual.jl")
 include("jacobian.jl")
+include("jacobian_fd.jl")
 include("subspace.jl")
 include("preconditioner.jl")
 include("gmres.jl")

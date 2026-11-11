@@ -75,21 +75,24 @@ mutable struct Subspace{PT, ZT<:MultiVector, A}
 end
 
 """
-    update!(S::Subspace, z; tol, maxsteps=20, p=k) -> S
+    update!(S::Subspace, z; tol, maxsteps=100, p=k) -> S
 
 Move `S` to the point `z`, with no integration, and make subspace steps there from the bases it
 has, at least one, until the bases before the last step are accurate,
-[`change`](@ref)`(S; p) ≤ tol`, or `maxsteps` steps have been made. A function of this package,
-not the `update!` of NKRoots.jl.
+
+    change(S; p) ≤ tol,
+
+and throw an error if they are not after `maxsteps` steps. A function of this package, not the
+`update!` of NKRoots.jl.
 
 # Arguments
 - `S::Subspace`: the subspace, changed; `S.steps` holds the number of steps made.
 - `z::MultiVector`: the new point, kept, not copied.
 - `tol::Real`: the accuracy wanted, absolute, as [`change`](@ref).
-- `maxsteps::Int=20`: the most steps.
+- `maxsteps::Int=100`: the most steps.
 - `p::Int=k`: the number of leading directions whose accuracy is tested.
 """
-function update!(S::Subspace, z::MultiVector; tol::Real, maxsteps::Int=20, p::Int=length(S.V))
+function update!(S::Subspace, z::MultiVector; tol::Real, maxsteps::Int=100, p::Int=length(S.V))
     # ---- input checks ----
     maxsteps >= 1 ||
         throw(ArgumentError("maxsteps must be at least 1"))
@@ -102,10 +105,11 @@ function update!(S::Subspace, z::MultiVector; tol::Real, maxsteps::Int=20, p::In
     while S.steps < maxsteps
         iterate!(S)
         S.steps += 1
-        change(S; p=p) <= tol && break
+        change(S; p=p) <= tol && return S
     end
 
-    return S
+    error("the subspace did not reach the tolerance $(tol) in $(maxsteps) steps: change " *
+          "$(change(S; p=p))")
 end
 
 """
@@ -113,7 +117,12 @@ end
 
 One subspace step at the point of `S`: each basis carried over its segment by the tangent map,
 the bases of the last seed shifted, and all of them moved to the next seed and orthonormalised
-there. On the way, the images of the bases and the bases before the step give Lust's remainders
+there,
+
+    Vᵢ₊₁ ← orth(ψᵢ Vᵢ),   i = 1, …, m - 1,   V₁ ← orth(S(s) ψ_m V_m),
+
+with Gram–Schmidt in the order of the directions, so that the spans of the first p are nested.
+On the way, the images of the bases and the bases before the step give Lust's remainders
 Z = (I - UUᵀ)V, read by [`change`](@ref). A step integrates the seeds k times, once with each
 direction, and leaves the end points of the segments, φ_τ(uᵢ), in `S.tmp`.
 
