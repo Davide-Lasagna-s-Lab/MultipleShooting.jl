@@ -259,6 +259,35 @@ ks22 = copy(ks22_guess)
 ks_search!(ks22)
 
 
+@testset "unequal segments on the KS orbit         " begin
+    # ---- the orbit at L = 22 cut at unequal times: the search closes it at the same period, and the Jacobian
+    #      matches central differences of the residual, the column of the period to the error of the scheme ----
+    z = ks22
+    T = period(z)
+    m = nsegments(z)
+    w = collect(1.0:m) ./ sum(1.0:m)
+    X = zeros(size(z.X))
+    x = z.X[:, 1:1]
+    for i in 1:m
+        X[:, i] .= vec(x)
+        propagate!(K, x, w[i]*T)
+    end
+    u = MultiVector(X, copy(z.d); τ=w .* T)
+    ks_search!(u)
+    @test norm(Residual(K)(similar(u), u)) < 1e-9
+    @test period(u) ≈ T rtol=1e-6
+
+    Random.seed!(1)
+    y = MultiVector(u.X .+ 1e-3 .* randn(size(u.X)), copy(u.d); τ=times(u))
+    v = similar(y)
+    v.X .= randn(size(y.X))
+    v.d .= 0
+    R(q) = Residual(K)(similar(q), q)
+    D = (R(y .+ 1e-6 .* v).X .- R(y .- 1e-6 .* v).X) ./ 2e-6
+    @test norm((Jacobian(K, y)*v).X - D) < 1e-6*norm(D)
+end
+
+
 @testset "subspace iteration on the KS orbit       " begin
     # ---- the first three directions settle, by about 0.58 a step, the rate of an iteration of
     #      dimension three, and the bases contain the generator of the shift, carried round the

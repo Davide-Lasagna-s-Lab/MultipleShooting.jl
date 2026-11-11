@@ -170,6 +170,15 @@ function _onetime(τ::AbstractVector)
 end
 
 propagate!(P, X, τ::AbstractVector)     = propagate!(P, X, _onetime(τ))
-dpropagate!(P, X, V, τ::AbstractVector) = dpropagate!(P, X, V, _onetime(τ))
+
+# the derivative of the end points in their times: that of the propagator for one time, and for
+# unequal times its default, the right-hand side at the end points
+function dpropagate!(P, X, V, τ::AbstractVector)
+    all(==(first(τ)), τ) &&
+        return dpropagate!(P, X, V, first(τ))
+    propagate!(P, X, τ)
+
+    return rhs!(P, V, X)
+end
 tangent!(P, X, V, τ::AbstractVector)    = tangent!(P, X, V, _onetime(τ))
 forced!(P, X, V, τ::AbstractVector)     = forced!(P, X, V, _onetime(τ))

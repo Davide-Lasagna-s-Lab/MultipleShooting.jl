@@ -198,3 +198,21 @@ function MultipleShooting.dshift!(P::KSPropagator, G::AbstractMatrix, X::Abstrac
 
     return _ks_grid!(G, W, P.D .* v̂)
 end
+
+# ---- one time per state: equal times as one batch, unequal ones a state at a time, each over its own time in
+#      steps of at most dt ----
+function MultipleShooting.propagate!(P::KSPropagator, X::AbstractMatrix, τ::AbstractVector)
+    all(==(first(τ)), τ) &&
+        return MultipleShooting.propagate!(P, X, first(τ))
+    foreach(i -> MultipleShooting.propagate!(P, view(X, :, i:i), τ[i]), axes(X, 2))
+
+    return X
+end
+
+function MultipleShooting.tangent!(P::KSPropagator, X::AbstractMatrix, V::AbstractMatrix, τ::AbstractVector)
+    all(==(first(τ)), τ) &&
+        return MultipleShooting.tangent!(P, X, V, first(τ))
+    foreach(i -> MultipleShooting.tangent!(P, view(X, :, i:i), view(V, :, i:i), τ[i]), axes(X, 2))
+
+    return V
+end
