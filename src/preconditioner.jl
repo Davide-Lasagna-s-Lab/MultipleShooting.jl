@@ -26,9 +26,17 @@
 # that these need no integration of their own: an update of the preconditioner integrates the
 # seeds k times, those of its subspace step. E has m k + 1 + nshifts rows, and is factorised by
 # sparse QR, since Gaussian elimination is unstable on cyclic block-bidiagonal matrices.
+#
+# How the bases keep up with the Newton iterates. At every update the subspace makes steps at the
+# new point until its bases are accurate to `tol`, at most `maxsteps`: with `cap = :keep` the cap
+# is not an error, so that `tol = 0` makes a fixed number of steps per update, and a positive `tol`
+# on the `p` leading directions a number set by how far the span has turned, by Lust's measure,
+# change, or by the turn of the whole span, turn, which needs no gap after them. With `every = N` the
+# bases and E are updated only at the Newton steps 1, 1 + N, 1 + 2N, …, and kept in between, with
+# no integration; `every = 0` keeps those of the first Newton step for good.
 
 """
-    Preconditioner(P, z; k, tol=1e-8, maxsteps=100, p=k)
+    Preconditioner(P, z; k, tol=1e-8, maxsteps=100, p=k, sweeps=0, cap=:error, every=1, by=:change)
 
 A right preconditioner of the Jacobian of the propagator `P` at `z`, on the leading directions
 of the loop, from a [`Subspace`](@ref) along it, with random bases at the start: with Uᵢ the
@@ -37,7 +45,7 @@ bases of `k` directions at the seeds,
     W = blockdiag(U₁, …, U_m, I),   E = Wᵀ J W,   M⁻¹ = -(I - W Wᵀ) + W E⁻¹ Wᵀ,
 
 -I outside the span of W and an exact solve with E on it. Every time it
-is built or moved, its subspace makes steps until the bases are accurate. For
+is built or moved, its subspace makes steps until the bases are accurate, or `maxsteps` of them. For
 `nkroot!(F, J, z; precond=M)` of NKRoots.jl: `update!(M, z)` moves it to `z`, `ldiv!(out, M, v)`
 applies `M⁻¹`, and `gram(M, Q)` gives the root of the Gram matrix of the vectors `M⁻¹ qⱼ`. Every
 subspace step integrates the seeds k times.
@@ -48,9 +56,17 @@ subspace step integrates the seeds k times.
 - `z::MultiVector`: the point, kept, not copied.
 - `k::Int`: the number of directions per seed.
 - `tol::Real=1e-8`: the accuracy of the bases, absolute, as [`change`](@ref).
-- `maxsteps::Int=100`: the most subspace steps per update, an error if the bases are not accurate
-  by then; `M.S.steps` holds the number of the last one.
+- `maxsteps::Int=100`: the most subspace steps per update; `M.S.steps` holds the number of the
+  last one.
 - `p::Int=k`: the number of leading directions whose accuracy is tested.
+- `sweeps::Int=0`: subspace steps from the random bases when it is built, before those of the
+  first update.
+- `cap::Symbol=:error`: when the bases are not accurate after `maxsteps` steps, `:error` throws
+  an error and `:keep` keeps them.
+- `every::Int=1`: the Newton steps between two updates, 0 to update at the first only;
+  `M.updated` says, Newton step by Newton step, whether it was updated.
+- `by::Symbol=:change`: the measure of the accuracy of the bases, [`change`](@ref) or
+  [`turn`](@ref).
 """
 mutable struct Preconditioner{ST<:Subspace}
            S::ST                                         # the subspace iteration along the loop
@@ -59,18 +75,31 @@ mutable struct Preconditioner{ST<:Subspace}
          tol::Float64                                    # the accuracy of the bases, as change
     maxsteps::Int                                        # subspace steps at most per update
            p::Int                                        # the directions whose accuracy is tested
+         cap::Symbol                                     # :error or :keep, when maxsteps is reached
+       every::Int                                        # Newton steps between updates, 0 for the first only
+          by::Symbol                                     # :change or :turn, the measure of the accuracy
+     updated::Vector{Bool}                               # whether each Newton step updated it
 
     function Preconditioner(P, z::MultiVector; k::Int,
                                                tol::Real=1e-8,
                                                maxsteps::Int=100,
-                                               p::Int=k)
+                                               p::Int=k,
+                                               sweeps::Int=0,
+                                               cap::Symbol=:error,
+                                               every::Int=1,
+                                               by::Symbol=:change)
         # ---- input checks ----
         1 <= p <= k ||
             throw(ArgumentError("p must be between 1 and k"))
+        every >= 0 ||
+            throw(ArgumentError("every must be at least 0"))
 
-        # ---- random bases at z, made accurate there ----
+        # ---- random bases at z, swept, then made accurate there ----
         S = Subspace(P, z; k=k)
-        update!(S, z; tol=tol, maxsteps=maxsteps, p=p)
+        for _ in 1:sweeps
+            iterate!(S)
+        end
+        update!(S, z; tol=tol, maxsteps=maxsteps, p=p, cap=cap, by=by)
 
         # ---- the coarse matrix, from the bases before the last step ----
         M = new{typeof(S)}(S,
@@ -78,7 +107,11 @@ mutable struct Preconditioner{ST<:Subspace}
                            nothing,
                            tol,
                            maxsteps,
-                           p)
+                           p,
+                           cap,
+                           every,
+                           by,
+                           Bool[])
         return _assemble!(M)
     end
 end
@@ -89,15 +122,22 @@ end
 Move `M` to the point `z`, as `nkroot!` of NKRoots.jl calls it at the start of every Newton
 iteration: its subspace moved to `z`, with steps there from the bases of the point before until
 they are accurate, at least one so that the images are those at `z`, and the coarse matrix
-assembled and factorised from the bases before the last step.
+assembled and factorised from the bases before the last step. At a Newton step between two
+updates, as `every` sets them, nothing changes and nothing is integrated.
 
 # Arguments
 - `M::Preconditioner`: the preconditioner, changed.
 - `z::MultiVector`: the new point, kept, not copied.
 """
 function NKRoots.update!(M::Preconditioner, z::MultiVector)
+    # ---- between two updates, the bases and E of the last one ----
+    step  = length(M.updated) + 1
+    fresh = step == 1 || (M.every > 0 && (step - 1) % M.every == 0)
+    push!(M.updated, fresh)
+    fresh || return M
+
     # ---- the subspace at z, made accurate there ----
-    update!(M.S, z; tol=M.tol, maxsteps=M.maxsteps, p=M.p)
+    update!(M.S, z; tol=M.tol, maxsteps=M.maxsteps, p=M.p, cap=M.cap, by=M.by)
 
     # ---- the coarse matrix, from the bases before the last step ----
     return _assemble!(M)
@@ -134,10 +174,10 @@ function _assemble!(M::Preconditioner)
 
     # ---- the projections on the bases, one per seed, brought to the host ----
     #      Uᵢᵀ Fᵢ at every seed, f₁ᵀ U₁, U₁ᵀ Gⱼ and g₁ⱼᵀ U₁ at the first seed
-    pf = [vec(Array(_dots(S.U[a], F))) for a in 1:k]
-    ff = [_dot(f₁, _head(S.U[a])) for a in 1:k]
-    pg = [_dot(_head(S.U[a]), G[j]) for a in 1:k, j in 1:ns]
-    gg = [_dot(g₁[j], _head(S.U[a])) for a in 1:k, j in 1:ns]
+    pf = [vec(Array(z.dots(S.U[a], F))) for a in 1:k]
+    ff = [_dot(z, f₁, _head(S.U[a])) for a in 1:k]
+    pg = [_dot(z, _head(S.U[a]), G[j]) for a in 1:k, j in 1:ns]
+    gg = [_dot(z, g₁[j], _head(S.U[a])) for a in 1:k, j in 1:ns]
 
     # ---- the entries ----
     Is = Int[]
@@ -177,7 +217,7 @@ end
 # the period and the shifts
 function _restrict(M::Preconditioner, v::MultiVector)
     k = length(M.S.U)
-    c = [vec(Array(_dots(M.S.U[a], v.X))) for a in 1:k]
+    c = [vec(Array(v.dots(M.S.U[a], v.X))) for a in 1:k]
 
     # ---- seed by seed, as the rows of E ----
     return [vec(permutedims(reduce(hcat, c))); v.d]

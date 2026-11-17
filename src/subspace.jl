@@ -60,7 +60,7 @@ mutable struct Subspace{PT, ZT<:MultiVector, A}
         # ---- random orthonormal bases ----
         X = z.X
         V = [_randn!(_similar(X)) for _ in 1:k]
-        _orthonormalise!(V)
+        _orthonormalise!(V, z.dots)
 
         return new{typeof(P), typeof(z), typeof(X)}(P,
                                                     z,
@@ -75,15 +75,14 @@ mutable struct Subspace{PT, ZT<:MultiVector, A}
 end
 
 """
-    update!(S::Subspace, z; tol, maxsteps=100, p=k) -> S
+    update!(S::Subspace, z; tol, maxsteps=100, p=k, cap=:error, by=:change) -> S
 
 Move `S` to the point `z`, with no integration, and make subspace steps there from the bases it
 has, at least one, until the bases before the last step are accurate,
 
-    change(S; p) ≤ tol,
+    change(S; p) ≤ tol,   or   turn(S; p) ≤ tol with `by = :turn`,
 
-and throw an error if they are not after `maxsteps` steps. A function of this package, not the
-`update!` of NKRoots.jl.
+or `maxsteps` steps have been made. A function of this package, not the `update!` of NKRoots.jl.
 
 # Arguments
 - `S::Subspace`: the subspace, changed; `S.steps` holds the number of steps made.
@@ -91,11 +90,26 @@ and throw an error if they are not after `maxsteps` steps. A function of this pa
 - `tol::Real`: the accuracy wanted, absolute, as [`change`](@ref).
 - `maxsteps::Int=100`: the most steps.
 - `p::Int=k`: the number of leading directions whose accuracy is tested.
+- `cap::Symbol=:error`: when the bases are not accurate after `maxsteps` steps, `:error` throws
+  an error and `:keep` keeps them as they are. With `tol = 0` and `:keep` the update makes
+  exactly `maxsteps` steps.
+- `by::Symbol=:change`: the measure of the accuracy, [`change`](@ref), the part of the images of
+  the first `p` directions outside their span, or [`turn`](@ref), the turn of the whole span,
+  which needs no gap after the first `p` directions.
 """
-function update!(S::Subspace, z::MultiVector; tol::Real, maxsteps::Int=100, p::Int=length(S.V))
+function update!(S::Subspace, z::MultiVector; tol::Real,
+                                              maxsteps::Int=100,
+                                              p::Int=length(S.V),
+                                              cap::Symbol=:error,
+                                              by::Symbol=:change)
     # ---- input checks ----
     maxsteps >= 1 ||
         throw(ArgumentError("maxsteps must be at least 1"))
+    cap in (:error, :keep) ||
+        throw(ArgumentError("cap must be :error or :keep"))
+    by in (:change, :turn) ||
+        throw(ArgumentError("by must be :change or :turn"))
+    accuracy() = by === :change ? change(S; p=p) : turn(S; p=p)
 
     # ---- the subspace moved to z, with no integration ----
     S.z = z
@@ -105,11 +119,13 @@ function update!(S::Subspace, z::MultiVector; tol::Real, maxsteps::Int=100, p::I
     while S.steps < maxsteps
         iterate!(S)
         S.steps += 1
-        change(S; p=p) <= tol && return S
+        accuracy() <= tol && return S
     end
 
-    error("the subspace did not reach the tolerance $(tol) in $(maxsteps) steps: change " *
-          "$(change(S; p=p))")
+    # ---- not accurate after the cap: kept as they are, or an error ----
+    cap === :keep && return S
+    error("the subspace did not reach the tolerance $(tol) in $(maxsteps) steps: $(by) " *
+          "$(accuracy())")
 end
 
 """
@@ -157,11 +173,11 @@ function iterate!(S::Subspace)
 
     # ---- Lust's remainders, from the images and the bases before the step, at every seed ----
     #      Zᵢ = (I - UᵢUᵢᵀ)Vᵢ,   with Vᵢ the images, not yet orthonormalised
-    _remainder!(S.Z, S.ZᵀZ, S.UᵀV, S.U, S.V)
+    _remainder!(S.Z, S.ZᵀZ, S.UᵀV, S.U, S.V, z.dots)
 
     # ---- the bases orthonormalised at every seed ----
     #      Vᵢ = orth(Vᵢ)
-    _orthonormalise!(S.V)
+    _orthonormalise!(S.V, z.dots)
 
     return S
 end
@@ -169,17 +185,19 @@ end
 # At every seed i, the coordinates UᵢᵀVᵢ of the images in the bases before the step, the remainders
 # Zᵢ = Vᵢ - Uᵢ(UᵢᵀVᵢ) = (I - UᵢUᵢᵀ)Vᵢ, and their inner products ZᵢᵀZᵢ, from the bases U before the
 # step and their images V, k batches each like the seeds. The coordinates are one per seed, from
-# _dots, and broadcast against the batches; the inner products are brought to the host
-function _remainder!(  Z::Vector{A},
-                     ZᵀZ::Array{Float64, 3},
-                     UᵀV::Array{Float64, 3},
-                       U::Vector{A},
-                       V::Vector{A}) where {A}
+# the inner product dots of the states, and broadcast against the batches; the inner products are
+# brought to the host
+function _remainder!(   Z::Vector{A},
+                      ZᵀZ::Array{Float64, 3},
+                      UᵀV::Array{Float64, 3},
+                        U::Vector{A},
+                        V::Vector{A},
+                     dots) where {A}
     k = length(U)
 
     # ---- the coordinates of the images in the bases before ----
     #      UᵀV[a, b, i] = ⟨uᵢᵃ, vᵢᵇ⟩
-    c = [_dots(U[a], V[b]) for a in 1:k, b in 1:k]
+    c = [dots(U[a], V[b]) for a in 1:k, b in 1:k]
     for a in 1:k, b in 1:k
         UᵀV[a, b, :] .= vec(Array(c[a, b]))
     end
@@ -196,16 +214,17 @@ function _remainder!(  Z::Vector{A},
     # ---- their inner products ----
     #      ZᵀZ[a, b, i] = ⟨zᵢᵃ, zᵢᵇ⟩
     for a in 1:k, b in 1:k
-        ZᵀZ[a, b, :] .= vec(Array(_dots(Z[a], Z[b])))
+        ZᵀZ[a, b, :] .= vec(Array(dots(Z[a], Z[b])))
     end
 
     return Z
 end
 
 # Modified Gram–Schmidt across the batches, at every seed i, in the order of the directions, and
-# twice for orthogonality to rounding. The coefficients are one per seed, from _dots, and broadcast
-# against the batches in both layouts: batched, along the last dimension; sliced, state by state
-function _orthonormalise!(V::Vector)
+# twice for orthogonality to rounding. The coefficients are one per seed, from the inner product
+# dots of the states, and broadcast against the batches in both layouts: batched, along the last
+# dimension; sliced, state by state
+function _orthonormalise!(V::Vector, dots)
     k = length(V)
 
     # ---- twice, the second pass for orthogonality to rounding ----
@@ -215,13 +234,13 @@ function _orthonormalise!(V::Vector)
             # ---- minus its components along the directions before it ----
             #      vᵢᵃ = vᵢᵃ - ⟨vᵢᵇ, vᵢᵃ⟩ vᵢᵇ,   b = 1, …, a - 1
             for b in 1:a-1
-                c = _dots(V[b], V[a])
+                c = dots(V[b], V[a])
                 V[a] .-= c .* V[b]
             end
 
             # ---- normalised ----
             #      vᵢᵃ = vᵢᵃ/‖vᵢᵃ‖
-            n = sqrt.(_dots(V[a], V[a]))
+            n = sqrt.(dots(V[a], V[a]))
             V[a] ./= n
         end
     end
@@ -289,4 +308,51 @@ function change(S::Subspace; p::Int=length(S.V))
 
     # ---- the largest over the seeds ----
     return maximum(ε)
+end
+
+"""
+    turn(S::Subspace; p=k)
+
+How far the span of the bases turned in the last subspace step: the sine of the `p`-th smallest
+principal angle between the span of the k directions before the step and the span of their
+images, at every seed, the largest over the seeds. When the bases hold `p` directions that the
+tangent maps carry into the span, as the leading directions once they have settled, the `p`
+smallest angles vanish, whatever the other directions do, so that the measure needs no gap
+between the first `p` directions and the next, as [`change`](@ref) does.
+
+# Arguments
+- `S::Subspace`: the subspace, after at least one step.
+- `p::Int=k`: the angle measured, from 1, the smallest, to k, the largest.
+
+At seed i, with Uᵢ the bases before the step and Vᵢ the images that reach it, the principal angles
+come from the matrices that the step keeps, Aᵢ = UᵢᵀVᵢ and ZᵢᵀZᵢ, with no inner product of the
+batches: since Vᵢ = UᵢAᵢ + Zᵢ with Zᵢ orthogonal to Uᵢ, the Gram matrix of the images is
+Gᵢ = AᵢᵀAᵢ + ZᵢᵀZᵢ, and the squared sines of the angles are the eigenvalues of the pencil
+(ZᵢᵀZᵢ, Gᵢ), those of the part of the orthonormalised images outside the span of Uᵢ. Inf before the
+first step.
+"""
+function turn(S::Subspace; p::Int=length(S.V))
+    k = length(S.V)
+    m = nsegments(S.z)
+
+    # ---- input checks ----
+    1 <= p <= k ||
+        throw(ArgumentError("p must be between 1 and k"))
+
+    # ---- nothing to measure before the first step ----
+    all(isfinite, S.ZᵀZ) ||
+        return Inf
+
+    # ---- the squared sines at every seed, from the pencil (ZᵀZ, AᵀA + ZᵀZ), smallest first ----
+    s = zeros(m)
+    for i in 1:m
+        A    = S.UᵀV[:, :, i]
+        ZᵀZ  = LinearAlgebra.Symmetric(S.ZᵀZ[:, :, i])
+        G    = LinearAlgebra.Symmetric(A'*A .+ ZᵀZ)
+        λ    = LinearAlgebra.eigvals(ZᵀZ, G)
+        s[i] = sqrt(clamp(sort(λ)[p], 0.0, 1.0))
+    end
+
+    # ---- the largest over the seeds ----
+    return maximum(s)
 end

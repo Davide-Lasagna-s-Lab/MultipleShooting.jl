@@ -28,10 +28,13 @@ export propagate!,
        Subspace,
        iterate!,
        change,
+       turn,
        Preconditioner,
        gmres,
        ritz_values,
-       tangent_sensitivity
+       tangent_sensitivity,
+       freesearch!,
+       continuation!
 
 include("batch.jl")
 include("interface.jl")
@@ -43,5 +46,7 @@ include("subspace.jl")
 include("preconditioner.jl")
 include("gmres.jl")
 include("sensitivity.jl")
+include("parameter.jl")
+include("continuation.jl")
 
 end

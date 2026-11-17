@@ -54,15 +54,13 @@ _head(X::Sliced)  = view(X, 1:1)
 _tail(X::Batched) = selectdim(X, ndims(X), nsegments(X):nsegments(X))
 _tail(X::Sliced)  = view(X, lastindex(X):lastindex(X))
 
-# the inner product of two batches, the sum over their states
-_dot(X::Batched, Y::Batched) = LinearAlgebra.dot(X, Y)
-_dot(X::Sliced, Y::Sliced)   = sum(i -> LinearAlgebra.dot(X[i], Y[i]), eachindex(X))
-
-# the inner products of the states of two batches, one per state: batched, an array whose last
+# The inner products of the states of two batches, one per state: batched, an array whose last
 # dimension runs over the states and the others have size one, so that it broadcasts against a
-# batch; sliced, a vector
-_dots(X::Batched, Y::Batched) = sum(X .* Y; dims=1:ndims(X) - 1)
-_dots(X::Sliced, Y::Sliced)   = map(LinearAlgebra.dot, X, Y)
+# batch; sliced, a vector. This is the Euclidean product of the numbers of a state, the real part
+# for complex ones, and the default of a MultiVector, which carries the product of its states: a
+# propagator whose states are not plain coordinates gives its own function of this form
+_dots(X::Batched, Y::Batched) = sum(real.(conj.(X) .* Y); dims=1:ndims(X) - 1)
+_dots(X::Sliced, Y::Sliced)   = map((x, y) -> real(LinearAlgebra.dot(x, y)), X, Y)
 
 # coefficients one per state, from a vector on the host, in the shape of _dots, so that they
 # broadcast against a batch: batched, on the device of X; sliced, a vector

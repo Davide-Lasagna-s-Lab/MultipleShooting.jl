@@ -36,27 +36,37 @@ by GMRES.
 """
 function tangent_sensitivity(P, z::MultiVector; tol::Real=1e-10, maxiter::Int=200)
     J = Jacobian(P, z)
-    τ = times(z)
 
-    # ---- the seeds, and vectors from zero ----
-    #      tmpᵢ = uᵢ,   bᵢ = 0
-    b = similar(z)
-    _copyto!(J.tmp, z.X)
-    b .= 0
-
-    # ---- advanced over their segments by the forced tangent equation ----
-    #      bᵢ = ∂φ_τ(uᵢ)/∂p
-    forced!(P, J.tmp, b.X, τ)
-
-    # ---- the end of the last segment shifted ----
-    #      b_m = S(s) ∂φ_τ(u_m)/∂p
-    nshifts(z) > 0 && shift!(P, _tail(b.X), _shifts(z))
-
-    # ---- each row in the row of the seed it has to reach, with the sign of -∂F/∂p ----
-    #      bᵢ₊₁ = -∂φ_τ(uᵢ)/∂p,   b₁ = -S(s) ∂φ_τ(u_m)/∂p,   and a zero scalar part
-    _roll!(b.X)
+    # ---- the right-hand side, -∂F/∂p ----
+    b  = _forced(P, z)
     b .= .-b
 
     # ---- J dz/dp = -∂F/∂p ----
     return gmres((out, v) -> LinearAlgebra.mul!(out, J, v), b; tol=tol, maxiter=maxiter).x
+end
+
+# the derivative ∂F/∂p of the residual of the propagator P at z in the parameter of the equation,
+# at fixed seeds, period and shifts: one integration of the seeds by the forced tangent equation.
+# The shifts are taken not to depend on the parameter
+function _forced(P, z::MultiVector)
+    X = _copy(z.X)
+
+    # ---- vectors from zero ----
+    #      cᵢ = 0
+    c  = similar(z)
+    c .= 0
+
+    # ---- advanced over their segments by the forced tangent equation ----
+    #      cᵢ = ∂φ_τ(uᵢ)/∂p
+    forced!(P, X, c.X, times(z))
+
+    # ---- the end of the last segment shifted ----
+    #      c_m = S(s) ∂φ_τ(u_m)/∂p
+    nshifts(z) > 0 && shift!(P, _tail(c.X), _shifts(z))
+
+    # ---- each row in the row of the seed it has to reach ----
+    #      cᵢ₊₁ = ∂φ_τ(uᵢ)/∂p,   c₁ = S(s) ∂φ_τ(u_m)/∂p,   and a zero scalar part
+    _roll!(c.X)
+
+    return c
 end

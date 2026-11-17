@@ -1,10 +1,12 @@
 using MultipleShooting
 using NKRoots: nkroot!, gram
+import NKRoots
 using LinearAlgebra
 using Random
 using Test
 
 include(joinpath(@__DIR__, "lorenz.jl"))
+include(joinpath(@__DIR__, "cycles.jl"))
 include(joinpath(@__DIR__, "ks.jl"))
 include(joinpath(@__DIR__, "data", "ks22.jl"))
 
@@ -299,6 +301,11 @@ end
         iterate!(S)
     end
     @test change(S; p=3) < 1e-6
+
+    # ---- the turn of the span: its smallest angles vanish with the settled directions, and the
+    #      angles come in order ----
+    @test turn(S; p=3) < 1e-5
+    @test turn(S; p=1) <= turn(S; p=3) <= turn(S; p=4)
     g = dshift!(K, similar(ks22.X), ks22.X, 1)
     Vᵢ(i) = reduce(hcat, [Vᵃ[:, i] for Vᵃ in S.V])
     @test maximum(norm(g[:, i] - Vᵢ(i)*(Vᵢ(i)'*g[:, i]))/norm(g[:, i]) for i in 1:4) < 1e-10
@@ -313,6 +320,16 @@ end
     @test change(S; p=3) <= 1e-6 && S.steps < 60
     @test_throws ErrorException MultipleShooting.update!(S, ks22; tol=0.0, maxsteps=3)
     @test S.steps == 3
+
+    # ---- the same on the turn of the span ----
+    MultipleShooting.update!(S, ks22; tol=1e-5, maxsteps=60, p=3, by=:turn)
+    @test turn(S; p=3) <= 1e-5 && S.steps < 60
+    @test_throws ArgumentError MultipleShooting.update!(S, ks22; tol=1e-5, by=:angle)
+
+    # ---- with cap = :keep the cap is no error: tol = 0 makes exactly maxsteps steps ----
+    MultipleShooting.update!(S, ks22; tol=0.0, maxsteps=3, cap=:keep)
+    @test S.steps == 3
+    @test_throws ArgumentError MultipleShooting.update!(S, ks22; tol=0.0, cap=:stop)
 end
 
 
@@ -359,6 +376,53 @@ end
 end
 
 
+@testset "preconditioner: steps per update, reuse   " begin
+    # ---- five sweeps and one step when built, then a fixed number of steps per update ----
+    Random.seed!(2)
+    z = copy(ks22_guess)
+    M = Preconditioner(K, z; k=4, sweeps=5, tol=0.0, maxsteps=1, cap=:keep)
+    @test M.S.steps == 1
+    NKRoots.update!(M, z)
+    @test M.S.steps == 1 && M.updated == [true]
+
+    # ---- at a fixed point, the steps of a rule on the leading directions stop once they are accurate ----
+    R = Preconditioner(K, z; k=4, sweeps=5, tol=1e-6, maxsteps=40, p=3, cap=:keep)
+    NKRoots.update!(R, z)
+    @test change(R.S; p=3) <= 1e-6 && R.S.steps < 40
+    A = Preconditioner(K, z; k=4, sweeps=5, tol=1e-5, maxsteps=40, p=3, cap=:keep, by=:turn)
+    @test turn(A.S; p=3) <= 1e-5 && A.S.steps < 40
+
+    # ---- every = 2: updates at the Newton steps 1 and 3, and at step 2 the same E with no step ----
+    U = Preconditioner(K, z; k=4, sweeps=5, tol=0.0, maxsteps=1, cap=:keep, every=2)
+    NKRoots.update!(U, z)
+    E = copy(U.E)
+    w = copy(z)
+    w.X .+= 1e-3 .* randn(size(w.X))
+    NKRoots.update!(U, w)
+    @test U.E == E && U.S.z === z
+    NKRoots.update!(U, w)
+    @test U.updated == [true, false, true] && U.S.z === w && U.E != E
+
+    # ---- every = 0: the first Newton step only ----
+    Z = Preconditioner(K, z; k=4, sweeps=5, tol=0.0, maxsteps=1, cap=:keep, every=0)
+    for _ in 1:3
+        NKRoots.update!(Z, w)
+    end
+    @test Z.updated == [true, false, false]
+    @test_throws ArgumentError Preconditioner(K, z; k=4, every=-1)
+
+    # ---- the KS search with two steps per update and with the preconditioner of every second step
+    #      both reach the orbit ----
+    for (every, maxsteps) in ((1, 2), (2, 1))
+        Random.seed!(2)
+        u = copy(ks22_guess)
+        P = Preconditioner(K, u; k=4, sweeps=5, tol=0.0, maxsteps=maxsteps, cap=:keep, every=every)
+        @test nkroot!(Residual(K), Jacobian(K, u), u; precond=P, flexible=true, krylov_dim=60,
+                      krylov_tol=1e-8, Δ=1.0, tol=1e-10, maxiter=40, verbose=false).status === :converged
+    end
+end
+
+
 @testset "Jacobian by finite differences           " begin
     # ---- off the orbit, its products against those of the tangent equation, in both layouts ----
     Random.seed!(1)
@@ -381,4 +445,160 @@ end
                   maxiter=40, verbose=false).status === :converged
     @test abs(period(z) - period(ks22)) < 1e-6
     @test abs(shift(z, 1) - shift(ks22, 1)) < 1e-6
+end
+
+
+@testset "bounds on the period                     " begin
+    # ---- within the bounds the residual is the same, outside it is infinite, with no integration ----
+    @test Residual(L; bounds=(1.0, 2.0))(similar(ab), ab).X == F(similar(ab), ab).X
+    @test norm(Residual(L; bounds=(1.0, 1.5))(similar(ab), ab)) == Inf
+    @test norm(Residual(L; bounds=(1.6, 2.0))(similar(ab), ab)) == Inf
+end
+
+
+@testset "a parameter as an unknown, two cycles     " begin
+    cycles(μ) = CyclePropagator(1e-2, μ)
+    outer(μ)  = (1 + sqrt(1 + 4μ))/2
+    inner(μ)  = (1 - sqrt(1 + 4μ))/2
+    radius²(z) = sum(abs2, z.X[:, 1])
+
+    # ---- below the fold there is no orbit: from the circle of the fold at μ = -0.3 the search at
+    #      a fixed parameter does not converge, and the search with the parameter free lands on a
+    #      circle at a parameter above the fold ----
+    z = circle(0.5)
+    @test nkroot!(Residual(cycles(-0.3)), Jacobian(cycles(-0.3), z), z; krylov_dim=9, krylov_tol=1e-10, Δ=0.1,
+                  tol=1e-10, maxiter=50, verbose=false).status !== :converged
+    z   = circle(0.5)
+    out = freesearch!(cycles, z, -0.3; krylov_tol=1e-10, krylov_dim=10)
+    @test out.status === :converged
+    @test out.p > -0.25
+    @test norm(Residual(cycles(out.p))(similar(z), z)) < 1e-10
+    @test abs(radius²(z) - outer(out.p)) < 1e-6 || abs(radius²(z) - inner(out.p)) < 1e-6
+
+    # ---- the column of the parameter from the forced tangent equation and from the central
+    #      difference of the residual, off an orbit, and the same search with the second ----
+    z = circle(0.6)
+    R(u, μ) = Residual(cycles(μ))(similar(u), u)
+    @test norm(MultipleShooting._forced(cycles(-0.2), z) .- (R(z, -0.2 + 1e-5) .- R(z, -0.2 - 1e-5)) ./ 2e-5) < 1e-8
+    z = circle(0.5)
+    @test abs(freesearch!(cycles, z, -0.3; column=:difference, krylov_tol=1e-10, krylov_dim=10).p - out.p) < 1e-8
+    @test_throws ArgumentError freesearch!(cycles, z, -0.3; column=:central)
+
+    # ---- on an orbit it stays where it is, up to the error of the scheme ----
+    z   = circle(outer(-0.1))
+    out = freesearch!(cycles, z, -0.1; krylov_tol=1e-10, krylov_dim=10)
+    @test out.status === :converged
+    @test abs(out.p + 0.1) < 1e-8
+
+    # ---- a trial parameter out of bounds is refused, and the search collapses ----
+    z = circle(0.5)
+    @test freesearch!(cycles, z, -0.3; bounds=(-0.35, -0.26), krylov_tol=1e-10, krylov_dim=10).status === :collapsed
+
+    # ---- with no target the continuation from the outer circle, the parameter shrinking, ends at
+    #      the fold, μ = -1/4 and r² = 1/2 ----
+    z   = circle(outer(-0.1))
+    out = continuation!(cycles, z, -0.1; sense=-1, krylov_tol=1e-10, krylov_dim=10)
+    @test out.status === :fold
+    @test abs(out.p + 0.25) < 1e-6
+    @test abs(radius²(z) - 0.5) < 2e-2
+    @test all(<(0), out.path.slope[1:(end - 1)])
+
+    # ---- with a target above it, it passes the fold and ends on the inner circle at the target ----
+    z   = circle(outer(-0.1))
+    out = continuation!(cycles, z, -0.1; sense=-1, target=-0.05, krylov_tol=1e-10, krylov_dim=10)
+    @test out.status === :target
+    @test abs(out.p + 0.05) < 1e-9
+    @test abs(radius²(z) - inner(-0.05)) < 1e-6
+    @test minimum(out.path.p) < -0.24
+
+    # ---- and with the parameter growing it ends on the outer circle at the same target ----
+    z   = circle(outer(-0.1))
+    out = continuation!(cycles, z, -0.1; target=-0.05, krylov_tol=1e-10, krylov_dim=10)
+    @test out.status === :target
+    @test abs(radius²(z) - outer(-0.05)) < 1e-6
+    @test_throws ArgumentError continuation!(cycles, z, -0.05; sense=2)
+end
+
+
+@testset "continuation of AB and of the KS orbit    " begin
+    # ---- AB from ρ = 28 to 28.5 against the search at 28.5, and the first slope dT/dρ against
+    #      the tangent sensitivity ----
+    lorenz(ρ) = LorenzPropagator(1e-3, ρ)
+    z   = copy(ab)
+    out = continuation!(lorenz, z, 28.0; target=28.5, krylov_tol=1e-10, krylov_dim=20)
+    w   = copy(ab)
+    nkroot!(Residual(lorenz(28.5)), Jacobian(lorenz(28.5), w), w; krylov_dim=20, krylov_tol=1e-10, Δ=1.0,
+            tol=1e-12, maxiter=50, verbose=false)
+    @test out.status === :target
+    @test abs(period(z) - period(w)) < 1e-8
+    @test abs((out.path.period[2] - out.path.period[1])/(out.path.p[2] - out.path.p[1]) -
+              period(tangent_sensitivity(L, ab))) < 1e-2*abs(period(tangent_sensitivity(L, ab)))
+
+    # ---- the Newton homotopy from the guess of AB, the amplitude of its residual from 1 to 0 ----
+    z   = copy(guess)
+    F₀  = F(similar(z), z)
+    out = continuation!(a -> L, z, 1.0; sense=-1, target=0.0, krylov_tol=1e-10, krylov_dim=20,
+                        residual=(r, u, a) -> (F(r, u); r .= r .- a .* F₀))
+    @test out.status === :target
+    @test norm(F(similar(z), z)) < 1e-8
+    @test abs(period(z) - period(ab)) < 1e-6
+
+    # ---- the KS orbit in the logarithm of the length of the domain, with the preconditioner and
+    #      bounds on the period, from L = 22 to 22.1 against the search there. The length is in
+    #      the shift too, so that the column is the central difference ----
+    Random.seed!(2)
+    ks(λ) = KSPropagator(; L=exp(λ))
+    z   = copy(ks22)
+    out = continuation!(ks, z, log(22.0); target=log(22.1), precond=Preconditioner(K, z; k=4), krylov_dim=60,
+                        periods=(0.5period(ks22), 2period(ks22)), column=:difference)
+    w   = copy(z)
+    nkroot!(Residual(ks(log(22.1))), Jacobian(ks(log(22.1)), w), w; krylov_dim=60, krylov_tol=1e-8, Δ=1.0,
+            tol=1e-10, maxiter=40, verbose=false)
+    @test out.status === :target
+    @test norm(Residual(ks(log(22.1)))(similar(z), z)) < 1e-9
+    @test abs(period(z) - period(w)) < 1e-7
+    @test abs(shift(z, 1) - shift(w, 1)) < 1e-7
+end
+
+
+@testset "inner product of the states               " begin
+    Random.seed!(4)
+    flat(v) = [vec(v.X); v.d]
+
+    # ---- complex states: the real part of the Euclidean product, in both layouts ----
+    z = MultiVector(randn(ComplexF64, 4, 3), [1.5])
+    w = MultiVector(randn(ComplexF64, 4, 3), [0.5])
+    @test dot(z, w) isa Float64
+    @test dot(z, w) ≈ real(dot(vec(z.X), vec(w.X))) + 0.75
+    @test dot(sliced(z), sliced(w)) ≈ dot(z, w)
+
+    # ---- a product of its own, with a weight on every coordinate, kept by the vectors made from it ----
+    q     = [1.0, 2.0, 3.0]
+    wdots = (X, Y) -> sum(q .* X .* Y; dims=1)
+    z = MultiVector(copy(guess.X), copy(guess.d); dots=wdots)
+    w = similar(z)
+    w .= 2 .* z
+    @test dot(z, w) ≈ 2*(sum(q .* guess.X.^2) + period(guess)^2)
+    @test dot(copy(z), z .+ w) ≈ 1.5*dot(z, w)
+    @test norm(z) ≈ sqrt(dot(z, z))
+
+    # ---- the search of AB with it: the same orbit, and a phase condition in the same product ----
+    @test search!(z).status === :converged
+    @test abs(period(z) - period(ab)) < 1e-8
+    v = MultiVector(randn(3, 4), [0.3]; dots=wdots)
+    f = MultipleShooting.rhs!(L, similar(z.X[:, 1:1]), z.X[:, 1:1])
+    @test period(Jacobian(L, z)*v) ≈ sum(q .* f .* v.X[:, 1:1])
+    @test period(JacobianFD(L, z)*v) ≈ sum(q .* f .* v.X[:, 1:1])
+
+    # ---- the bases of the subspace are orthonormal in it, the coarse matrix is Wᵀ J W in it, and
+    #      the KS search with the preconditioner reaches the orbit with a weight on the grid ----
+    M = Preconditioner(L, z; k=2)
+    @test all(a -> all(wdots(M.S.U[a], M.S.U[a]) .≈ 1), 1:2)
+    @test maximum(abs, wdots(M.S.U[1], M.S.U[2])) < 1e-12
+    Random.seed!(2)
+    g = 1 .+ 0.5 .* cos.(2π .* (0:63) ./ 64)
+    u = MultiVector(copy(ks22_guess.X), copy(ks22_guess.d); dots=(X, Y) -> sum(g .* X .* Y; dims=1))
+    @test nkroot!(Residual(K), Jacobian(K, u), u; precond=Preconditioner(K, u; k=4), flexible=true, krylov_dim=60,
+                  krylov_tol=1e-8, Δ=1.0, tol=1e-10, maxiter=40, verbose=false).status === :converged
+    @test abs(period(u) - period(ks22)) < 1e-6
 end

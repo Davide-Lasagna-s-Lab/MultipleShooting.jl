@@ -11,9 +11,13 @@
 # The residual follows the equations: the seeds are advanced over their segments in r, the end of
 # the last segment is shifted, and each end point is moved into the row of the seed it has to
 # reach, before the seeds are subtracted. r is the only storage.
+#
+# A search may try a period far from that of its guess, near a point where the Jacobian is nearly
+# singular. With bounds on the period, the residual of such a point is infinite, with no
+# integration, so that a search refuses it as it refuses any step that does not lower the residual.
 
 """
-    Residual(P)
+    Residual(P; bounds=(-Inf, Inf))
 
 The multiple-shooting residual of the propagator `P`, called as `F(r, z)`, as `nkroot!` of
 NKRoots.jl calls it. In the row of segment i + 1 it holds the end of segment i minus the seed of
@@ -22,20 +26,30 @@ first seed,
 
     rᵢ₊₁ = φ_τ(uᵢ) - uᵢ₊₁,   i = 1, …, m - 1,   r₁ = S(s) φ_τ(u_m) - u₁,   τ = T/m,
 
-and its scalar part is zero. One integration of the seeds per call.
+and its scalar part is zero. One integration of the seeds per call. Where the period of `z` is
+not within `bounds` the residual is infinite, with no integration.
 
 # Arguments
 - `P`: the propagator, with `propagate!`, and `shift!` for relative periodic orbits.
+- `bounds=(-Inf, Inf)`: the least and the largest period, both excluded, as `(0.5T, 2T)` for a
+  guess of period `T`.
 
 Called as `F(r, z)`, with
 - `r::MultiVector`: overwritten with the residual;
 - `z::MultiVector`: the unknowns, not changed.
 """
 struct Residual{PT}
-    P::PT # the propagator
+         P::PT                      # the propagator
+    bounds::Tuple{Float64, Float64} # the periods outside which the residual is infinite
+
+    Residual(P; bounds=(-Inf, Inf)) = new{typeof(P)}(P, bounds)
 end
 
 function (F::Residual)(r::MultiVector, z::MultiVector)
+    # ---- a period out of bounds: an infinite residual ----
+    F.bounds[1] < period(z) < F.bounds[2] ||
+        return r .= Inf
+
     τ = times(z)
 
     # ---- the seeds ----
