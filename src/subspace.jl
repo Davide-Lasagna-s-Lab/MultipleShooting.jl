@@ -11,9 +11,15 @@
 #
 #     V[1] = (v₁¹, v₂¹, …, v_m¹),   …,   V[k] = (v₁ᵏ, v₂ᵏ, …, v_mᵏ),
 #
-# so that each is advanced, shifted and rolled as a vector of the Jacobian is, by tangent! along
-# the seeds, one direction at a time. Gram–Schmidt then runs across the k batches, state by state,
-# in order, so that the first p directions at every seed are a subspace iteration of their own.
+# so that each is shifted and rolled as a vector of the Jacobian is. A step advances all of them at
+# once: the k batches are packed into one batch of k blocks of m states, along k copies of the
+# seeds, and tangent! advances that batch in one call,
+#
+#     X = (u₁, …, u_m, u₁, …, u_m, …),   V = (v₁¹, …, v_m¹, v₁², …, v_m², …),
+#
+# so that a propagator on a GPU advances the m k states together. Gram–Schmidt then runs across
+# the k batches, state by state, in order, so that the first p directions at every seed are a
+# subspace iteration of their own.
 #
 # The accuracy of the first p directions is measured as in Lust (1997, sections 2.4.4 and 6.3.3):
 # the part of their images that falls outside their span at the seed they reach,
@@ -41,7 +47,7 @@ of the bases before the last step.
 - `z::MultiVector`: the point, kept, not copied.
 - `k::Int`: the number of directions per seed, at least 1.
 """
-mutable struct Subspace{PT, ZT<:MultiVector, A}
+mutable struct Subspace{PT, ZT<:MultiVector, A, B}
       P::PT                 # the propagator
       z::ZT                 # the point, not a copy: its seeds, period and shifts give the tangent maps
       V::Vector{A}          # the bases, one batch per direction: V[a] holds direction a at every seed
@@ -49,7 +55,9 @@ mutable struct Subspace{PT, ZT<:MultiVector, A}
       Z::Vector{A}          # the parts of the images outside the bases before, Z = (I - UUᵀ)V
     ZᵀZ::Array{Float64, 3}  # ⟨zᵢᵃ, zᵢᵇ⟩ at every seed, k × k × m, from the last step: Inf before any
     UᵀV::Array{Float64, 3}  # ⟨uᵢᵃ, vᵢᵇ⟩ at every seed, k × k × m, from the last step: Inf before any
-    tmp::A                  # work batch: the seeds advanced, the end points after a step
+    tmp::A                  # work batch: the end points of the segments after a step
+     Xk::B                  # the packed batch of the seeds, k blocks of m states, advanced by a step
+     Vk::B                  # the packed batch of the bases, block a holding direction a
   steps::Int                # subspace steps of the last update!
 
     function Subspace(P, z::MultiVector; k::Int)
@@ -62,15 +70,21 @@ mutable struct Subspace{PT, ZT<:MultiVector, A}
         V = [_randn!(_similar(X)) for _ in 1:k]
         _orthonormalise!(V, z.dots)
 
-        return new{typeof(P), typeof(z), typeof(X)}(P,
-                                                    z,
-                                                    V,
-                                                    _similar.(V),
-                                                    _similar.(V),
-                                                    fill(Inf, k, k, nsegments(X)),
-                                                    fill(Inf, k, k, nsegments(X)),
-                                                    _similar(X),
-                                                    0)
+        # ---- the packed batches of a step, m k states each ----
+        Xk = _similar(X, k*nsegments(X))
+        Vk = _similar(X, k*nsegments(X))
+
+        return new{typeof(P), typeof(z), typeof(X), typeof(Xk)}(P,
+                                                                z,
+                                                                V,
+                                                                _similar.(V),
+                                                                _similar.(V),
+                                                                fill(Inf, k, k, nsegments(X)),
+                                                                fill(Inf, k, k, nsegments(X)),
+                                                                _similar(X),
+                                                                Xk,
+                                                                Vk,
+                                                                0)
     end
 end
 
@@ -139,8 +153,9 @@ there,
 
 with Gram–Schmidt in the order of the directions, so that the spans of the first p are nested.
 On the way, the images of the bases and the bases before the step give Lust's remainders
-Z = (I - UUᵀ)V, read by [`change`](@ref). A step integrates the seeds k times, once with each
-direction, and leaves the end points of the segments, φ_τ(uᵢ), in `S.tmp`.
+Z = (I - UUᵀ)V, read by [`change`](@ref). A step advances the k directions together, as one
+batch of m k states along k copies of the seeds, by one call of `tangent!`, and leaves the end
+points of the segments, φ_τ(uᵢ), in `S.tmp`.
 
 # Arguments
 - `S::Subspace`: the subspace, changed.
@@ -148,7 +163,7 @@ direction, and leaves the end points of the segments, φ_τ(uᵢ), in `S.tmp`.
 function iterate!(S::Subspace)
     z = S.z
     k = length(S.V)
-    τ = times(z)
+    m = nsegments(z.X)
 
     # ---- the bases before the step ----
     #      Uᵃ = Vᵃ
@@ -156,11 +171,25 @@ function iterate!(S::Subspace)
         _copyto!(S.U[a], S.V[a])
     end
 
+    # ---- the k directions packed into one batch, block a along a copy of the seeds ----
+    #      X = (u₁, …, u_m, u₁, …, u_m, …),   V = (v₁¹, …, v_m¹, v₁², …, v_m², …)
     for a in 1:k
-        # ---- advanced over the segments, along a copy of the seeds ----
-        #      vᵢᵃ = ψᵢ vᵢᵃ
-        _copyto!(S.tmp, z.X)
-        tangent!(S.P, S.tmp, S.V[a], τ)
+        _copyto!(_block(S.Xk, a, m), z.X)
+        _copyto!(_block(S.Vk, a, m), S.V[a])
+    end
+
+    # ---- advanced over the segments together, each block by the times of the segments ----
+    #      vᵢᵃ = ψᵢ vᵢᵃ
+    τ = repeat(times(z), k)
+    tangent!(S.P, S.Xk, S.Vk, τ)
+
+    # ---- the end points of the segments, from the first block ----
+    #      Xᵢ = φ_τ(uᵢ)
+    _copyto!(S.tmp, _block(S.Xk, 1, m))
+
+    for a in 1:k
+        # ---- direction a back in its batch ----
+        _copyto!(S.V[a], _block(S.Vk, a, m))
 
         # ---- the end of the last segment shifted ----
         #      v_mᵃ = S(s) ψ_m v_mᵃ

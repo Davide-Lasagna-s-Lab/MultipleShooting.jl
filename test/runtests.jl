@@ -216,6 +216,16 @@ end
 
     # ---- the two layouts agree ----
     @test all(reduce(hcat, Sₛ.V[a]) ≈ S.V[a] for a in 1:2)
+
+    # ---- the packed step advances each direction as tangent! does on it alone, and leaves the
+    #      end points of the segments ----
+    τ = MultipleShooting.times(ab)
+    W = map(S.V) do Vᵃ
+        tangent!(L, copy(ab.X), copy(Vᵃ), τ)
+    end
+    iterate!(S)
+    @test all(MultipleShooting._block(S.Vk, a, 4) ≈ W[a] for a in 1:2)
+    @test S.tmp ≈ propagate!(L, copy(ab.X), τ)
 end
 
 

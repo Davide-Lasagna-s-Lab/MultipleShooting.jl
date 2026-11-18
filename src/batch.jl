@@ -5,8 +5,9 @@
 #               advance the whole array at once
 #     sliced    a vector of states, each an array of any shape, advanced one at a time
 #
-# The bases of the subspace iteration are k batches like the seeds, one per direction. Besides
-# broadcasting, these are the only operations the code makes on a batch.
+# The bases of the subspace iteration are k batches like the seeds, one per direction, advanced
+# together as one batch of k blocks. Besides broadcasting, these are the only operations the code
+# makes on a batch.
 
 """
     Batched
@@ -45,6 +46,16 @@ _similar(X::Sliced)  = map(similar, X)
 
 _randn!(X::Batched) = Random.randn!(X)
 _randn!(X::Sliced)  = (foreach(Random.randn!, X); X)
+
+# a batch of the same layout as X with b states, its entries not set: batched, of the type that
+# `similar` gives for the new size, which a propagator must be able to advance; sliced, b states
+# shaped as the first of X
+_similar(X::Batched, b::Int) = similar(X, eltype(X), (Base.front(size(X))..., b))
+_similar(X::Sliced, b::Int)  = [similar(first(X)) for _ in 1:b]
+
+# block a of a batch made of blocks of m states, (a - 1)m + 1 to am, without a copy
+_block(X::Batched, a::Int, m::Int) = selectdim(X, ndims(X), ((a - 1)*m + 1):(a*m))
+_block(X::Sliced, a::Int, m::Int)  = view(X, ((a - 1)*m + 1):(a*m))
 
 # the first and the last state of a batch, as a batch of one state, without a copy: the first
 # seed, and the end of the last segment
