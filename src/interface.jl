@@ -7,8 +7,10 @@
 #     dpropagate!(P, X, V, τ)  as propagate!, and V the derivative in τ of the  period
 #                              end points; by default f at the end points
 #     rhs!(P, F, X)            the time derivative f at every state of X       period, phase
-#     tangent!(P, X, V, τ)     advance the states of X, and those of V by      Jacobian,
-#                              the tangent equation along them                 subspace
+#     tangent!(P, X, V, τ)     advance the states of X, and those of V by      Jacobian
+#                              the tangent equation along them
+#     tangents!(P, X, V, τ)    as tangent!, for k′ blocks of V along the       subspace
+#                              states of X; by default along k′ copies of X
 #     shift!(P, X, s)          shift every state of X by the shifts s          relative orbits
 #     dshift!(P, G, X, j)      the generator of shift j at every state of X    relative orbits
 #     forced!(P, X, V, τ)      as tangent!, forced by ∂f/∂p                    sensitivity
@@ -16,6 +18,8 @@
 # shift! and dshift! are needed for relative periodic orbits only, and forced! for the sensitivity
 # to a parameter only. dpropagate! has a default, the right-hand side at the end points, the
 # derivative of the exact flow; a propagator gives its own for the derivative of its integrator.
+# tangents! has a default too, which integrates the states once for every block; a propagator gives
+# its own to integrate them once for all the blocks.
 # For relative periodic orbits the system must be equivariant: the shifts commute with the flow,
 # and f(S(s) x) = S(s) f(x).
 
@@ -97,6 +101,39 @@ from xᵢ: the tangent map of the integrator, for the Jacobian of its residual t
 - `τ::Real`: the time.
 """
 function tangent! end
+
+"""
+    tangents!(P, X, V, τ) -> V
+
+As [`tangent!`](@ref), for several perturbations of every state. The batch `V` holds k′ blocks of
+perturbations one after the other, each like `X`, and every block is advanced by the tangent
+equation along the states of `X`, which are advanced once, all in place,
+
+    xᵢ ← φ_τ(xᵢ),   vᵢᵃ ← ψᵢ vᵢᵃ,   a = 1, …, k′,
+
+as a subspace step needs for the k′ directions of every shooting point. The default integrates the
+states k′ times: it advances k′ copies of `X`, one beside each block, by `tangent!`. A propagator
+gives its own method, for one time `τ::Real`, to integrate the states once for all the blocks.
+
+# Arguments
+- `P`: the propagator.
+- `X`: a batch of m states, overwritten with their images.
+- `V`: a batch of k′ m perturbations, block a in the places (a - 1)m + 1 to am, overwritten with
+  their images by the tangent maps.
+- `τ`: the time, or the vector of the times of the m states.
+"""
+function tangents!(P, X, V, τ::Real)
+    m   = nsegments(X)
+    Xk′ = _copies(X, nsegments(V) ÷ m)
+
+    # ---- every block along its own copy of the states ----
+    tangent!(P, Xk′, V, τ)
+
+    # ---- the end points, from the first copy ----
+    _copyto!(X, _block(Xk′, 1, m))
+
+    return V
+end
 
 """
     shift!(P, X, s) -> X
@@ -182,3 +219,19 @@ function dpropagate!(P, X, V, τ::AbstractVector)
 end
 tangent!(P, X, V, τ::AbstractVector)    = tangent!(P, X, V, _onetime(τ))
 forced!(P, X, V, τ::AbstractVector)     = forced!(P, X, V, _onetime(τ))
+
+# the k′ blocks of V along the states of X: for equal times the method for one time, which a
+# propagator may give; for unequal ones the default, k′ copies of the states each with its time
+function tangents!(P, X, V, τ::AbstractVector)
+    all(==(first(τ)), τ) &&
+        return tangents!(P, X, V, first(τ))
+    m   = nsegments(X)
+    k′  = nsegments(V) ÷ m
+    Xk′ = _copies(X, k′)
+
+    # ---- every block along its own copy of the states, and the end points from the first ----
+    tangent!(P, Xk′, V, repeat(τ, k′))
+    _copyto!(X, _block(Xk′, 1, m))
+
+    return V
+end

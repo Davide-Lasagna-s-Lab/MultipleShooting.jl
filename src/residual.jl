@@ -13,11 +13,13 @@
 # reach, before the seeds are subtracted. r is the only storage.
 #
 # A search may try a period far from that of its guess, near a point where the Jacobian is nearly
-# singular. With bounds on the period, the residual of such a point is infinite, with no
-# integration, so that a search refuses it as it refuses any step that does not lower the residual.
+# singular, and a full Newton step may even take the period below zero, where no segment exists.
+# The residual of a period out of bounds is infinite, with no integration, so that a search refuses
+# the trial as it refuses any step that does not lower the residual. A period that is not positive
+# is always out of bounds.
 
 """
-    Residual(P; bounds=(-Inf, Inf))
+    Residual(P; bounds=(0.0, Inf))
 
 The multiple-shooting residual of the propagator `P`, called as `F(r, z)`, as `nkroot!` of
 NKRoots.jl calls it. In the row of segment i + 1 it holds the end of segment i minus the seed of
@@ -31,8 +33,8 @@ not within `bounds` the residual is infinite, with no integration.
 
 # Arguments
 - `P`: the propagator, with `propagate!`, and `shift!` for relative periodic orbits.
-- `bounds=(-Inf, Inf)`: the least and the largest period, both excluded, as `(0.5T, 2T)` for a
-  guess of period `T`.
+- `bounds=(0.0, Inf)`: the least and the largest period, both excluded, as `(0.5T, 2T)` for a
+  guess of period `T`. The default refuses the periods that are not positive.
 
 Called as `F(r, z)`, with
 - `r::MultiVector`: overwritten with the residual;
@@ -42,7 +44,7 @@ struct Residual{PT}
          P::PT                      # the propagator
     bounds::Tuple{Float64, Float64} # the periods outside which the residual is infinite
 
-    Residual(P; bounds=(-Inf, Inf)) = new{typeof(P)}(P, bounds)
+    Residual(P; bounds=(0.0, Inf)) = new{typeof(P)}(P, bounds)
 end
 
 function (F::Residual)(r::MultiVector, z::MultiVector)

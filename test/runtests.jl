@@ -196,36 +196,64 @@ end
 
 
 @testset "subspace iteration                       " begin
-    # ---- on the orbit with k = 2, in both layouts from the same random bases ----
+    # ---- on the orbit with k′ = 2, in both layouts from the same random bases ----
     Random.seed!(2)
-    S  = Subspace(L, ab; k=2)
-    Sₛ = Subspace(L, sliced(ab); k=2)
+    S  = Subspace(L, ab; k′=2)
+    Sₛ = Subspace(L, sliced(ab); k′=2)
     for a in 1:2
         Sₛ.V[a] .= collect.(eachcol(S.V[a]))
     end
-    for _ in 1:8
+    iterate!(S)
+    iterate!(Sₛ)
+
+    # ---- the turn of the first step: the sines of the principal angles between the spans before
+    #      and after it, against a dense SVD of Zᵢ at every point. Two planes of a space of three
+    #      dimensions share a line, so that the smallest angle vanishes, and the turn resolves it
+    #      to rounding, while from random bases the other is large ----
+    Uᵢ(i) = reduce(hcat, [Uᵃ[:, i] for Uᵃ in S.U])
+    Vᵢ(i) = reduce(hcat, [Vᵃ[:, i] for Vᵃ in S.V])
+    @test all(S.σ[:, i] ≈ sort(svdvals(Vᵢ(i) - Uᵢ(i)*(Uᵢ(i)'*Vᵢ(i)))) for i in 1:4)
+    @test maxturn(S; k=1) < 1e-14
+    @test maxturn(S; k=2) > 0.5
+
+    # ---- the bases settle, their turn falls to rounding, and they contain the flow, the neutral
+    #      direction ----
+    for _ in 2:8
         iterate!(S)
         iterate!(Sₛ)
     end
-
-    # ---- the bases settle, and contain the flow, the neutral direction ----
-    @test change(S) < 1e-6
+    @test maxturn(S) < 1e-13
     f = lorenz_rhs!(similar(ab.X), ab.X, L.ρ)
-    Vᵢ(i) = reduce(hcat, [Vᵃ[:, i] for Vᵃ in S.V])
     @test maximum(norm(f[:, i] - Vᵢ(i)*(Vᵢ(i)'*f[:, i]))/norm(f[:, i]) for i in 1:4) < 1e-6
 
     # ---- the two layouts agree ----
     @test all(reduce(hcat, Sₛ.V[a]) ≈ S.V[a] for a in 1:2)
+    @test Sₛ.E ≈ S.E
 
-    # ---- the packed step advances each direction as tangent! does on it alone, and leaves the
-    #      end points of the segments ----
+    # ---- the packed step advances each direction as tangent! does on it alone, leaves the end
+    #      points of the segments, and gives the Galerkin blocks of the bases before it,
+    #      Eᵢ = Uᵢ₊₁ᵀ ψᵢ Uᵢ ----
     τ = MultipleShooting.times(ab)
     W = map(S.V) do Vᵃ
         tangent!(L, copy(ab.X), copy(Vᵃ), τ)
     end
     iterate!(S)
-    @test all(MultipleShooting._block(S.Vk, a, 4) ≈ W[a] for a in 1:2)
+    @test all(MultipleShooting._block(S.Vk′, a, 4) ≈ W[a] for a in 1:2)
     @test S.tmp ≈ propagate!(L, copy(ab.X), τ)
+    @test all(S.E[:, :, i] ≈ Uᵢ(i % 4 + 1)'*reduce(hcat, [Wᵇ[:, i] for Wᵇ in W]) for i in 1:4)
+
+    # ---- tangents! advances the blocks of several directions along the states, by default as
+    #      tangent! does on each block alone, and leaves the end points in the states ----
+    X = copy(ab.X)
+    V = reduce(hcat, S.V)
+    W = [tangent!(L, copy(ab.X), copy(Vᵃ), τ) for Vᵃ in S.V]
+    tangents!(L, X, V, τ)
+    @test X ≈ propagate!(L, copy(ab.X), τ)
+    @test all(MultipleShooting._block(V, a, 4) ≈ W[a] for a in 1:2)
+
+    # ---- on bases that have settled, the update passes the test after one step ----
+    MultipleShooting.update!(S, ab; tol=1e-12)
+    @test S.steps == 1
 end
 
 
@@ -301,21 +329,24 @@ end
 
 
 @testset "subspace iteration on the KS orbit       " begin
-    # ---- the first three directions settle, by about 0.58 a step, the rate of an iteration of
-    #      dimension three, and the bases contain the generator of the shift, carried round the
-    #      loop by the shift of the bases. f is left out: on the loop of the scheme it is neutral
-    #      only up to the error of the time step ----
+    # ---- from random bases of four directions the span turns far in the first step ----
     Random.seed!(2)
-    S = Subspace(K, ks22; k=4)
-    for _ in 1:40
+    S = Subspace(K, ks22; k′=4)
+    iterate!(S)
+    @test maxturn(S; k=1) > 0.5
+
+    # ---- the span of the three leading directions settles within the four: the three smallest
+    #      angles fall to rounding, while the fourth, that of the guard vector, still turns. The
+    #      angles come in order, and the bases contain the generator of the shift, carried round
+    #      the loop by the shift of the bases. f is left out: on the loop of the scheme it is
+    #      neutral only up to the error of the time step ----
+    for _ in 2:40
         iterate!(S)
     end
-    @test change(S; p=3) < 1e-6
-
-    # ---- the turn of the span: its smallest angles vanish with the settled directions, and the
-    #      angles come in order ----
-    @test turn(S; p=3) < 1e-5
-    @test turn(S; p=1) <= turn(S; p=3) <= turn(S; p=4)
+    @test maxturn(S; k=3) < 1e-13
+    @test maxturn(S; k=4) > 100*maxturn(S; k=3)
+    @test maxturn(S; k=1) <= maxturn(S; k=3) <= maxturn(S; k=4)
+    @test_throws ArgumentError maxturn(S; k=5)
     g = dshift!(K, similar(ks22.X), ks22.X, 1)
     Vᵢ(i) = reduce(hcat, [Vᵃ[:, i] for Vᵃ in S.V])
     @test maximum(norm(g[:, i] - Vᵢ(i)*(Vᵢ(i)'*g[:, i]))/norm(g[:, i]) for i in 1:4) < 1e-10
@@ -323,23 +354,21 @@ end
 
 
 @testset "subspace update to a tolerance           " begin
-    # ---- steps until the first three directions are accurate, and no more than the cap ----
+    # ---- steps until the turn of the first three directions passes the test, and no more than
+    #      the cap ----
     Random.seed!(2)
-    S = Subspace(K, ks22; k=4)
-    MultipleShooting.update!(S, ks22; tol=1e-6, maxsteps=60, p=3)
-    @test change(S; p=3) <= 1e-6 && S.steps < 60
+    S = Subspace(K, ks22; k′=4)
+    MultipleShooting.update!(S, ks22; tol=1e-6, k=3, maxsteps=60)
+    @test maxturn(S; k=3) <= 1e-6 && S.steps < 60
     @test_throws ErrorException MultipleShooting.update!(S, ks22; tol=0.0, maxsteps=3)
     @test S.steps == 3
-
-    # ---- the same on the turn of the span ----
-    MultipleShooting.update!(S, ks22; tol=1e-5, maxsteps=60, p=3, by=:turn)
-    @test turn(S; p=3) <= 1e-5 && S.steps < 60
-    @test_throws ArgumentError MultipleShooting.update!(S, ks22; tol=1e-5, by=:angle)
 
     # ---- with cap = :keep the cap is no error: tol = 0 makes exactly maxsteps steps ----
     MultipleShooting.update!(S, ks22; tol=0.0, maxsteps=3, cap=:keep)
     @test S.steps == 3
     @test_throws ArgumentError MultipleShooting.update!(S, ks22; tol=0.0, cap=:stop)
+    @test_throws ArgumentError MultipleShooting.update!(S, ks22; tol=1e-6, k=5)
+    @test_throws MethodError MultipleShooting.update!(S, ks22; tol=1e-6, p=3)
 end
 
 
@@ -348,7 +377,7 @@ end
     #      by column with the products of the Jacobian ----
     Random.seed!(1)
     J = Jacobian(L, ab)
-    M = Preconditioner(L, ab; k=2)
+    M = Preconditioner(L, ab; k′=2)
     W = MultiVector[]
     for i in 1:4, a in 1:2
         w = MultiVector(zeros(3, 4), [0.0])
@@ -377,11 +406,18 @@ end
     R = gram(M, Q)
     @test norm(R'*R - Y'*Y) < 1e-12*norm(Y'*Y)
 
-    # ---- the KS search with the preconditioner, k = 4, reaches the orbit ----
+    # ---- a solve with the coarse matrix whose relative residual is above the tolerance is an
+    #      error: here the factors are those of half the matrix, and the residual is one ----
+    B = Preconditioner(L, ab; k′=2)
+    B.E.nzval .*= 2
+    @test_throws ErrorException ldiv!(similar(ab), B, unflat(x))
+    @test_throws ErrorException gram(B, Q)
+
+    # ---- the KS search with the preconditioner, k′ = 4, reaches the orbit ----
     Random.seed!(2)
     z  = copy(ks22_guess)
     Jk = Jacobian(K, z)
-    @test nkroot!(Residual(K), Jk, z; precond=Preconditioner(K, z; k=4), flexible=true, krylov_dim=60,
+    @test nkroot!(Residual(K), Jk, z; precond=Preconditioner(K, z; k′=4), flexible=true, krylov_dim=60,
                   krylov_tol=1e-8, Δ=1.0, tol=1e-10, maxiter=40, verbose=false).status === :converged
 end
 
@@ -390,20 +426,19 @@ end
     # ---- five sweeps and one step when built, then a fixed number of steps per update ----
     Random.seed!(2)
     z = copy(ks22_guess)
-    M = Preconditioner(K, z; k=4, sweeps=5, tol=0.0, maxsteps=1, cap=:keep)
+    M = Preconditioner(K, z; k′=4, sweeps=5, tol=0.0, maxsteps=1, cap=:keep)
     @test M.S.steps == 1
     NKRoots.update!(M, z)
     @test M.S.steps == 1 && M.updated == [true]
 
-    # ---- at a fixed point, the steps of a rule on the leading directions stop once they are accurate ----
-    R = Preconditioner(K, z; k=4, sweeps=5, tol=1e-6, maxsteps=40, p=3, cap=:keep)
+    # ---- at a fixed point, the steps to a tolerance on the leading directions stop once their
+    #      turn passes the test ----
+    R = Preconditioner(K, z; k′=4, k=3, sweeps=5, tol=1e-6, maxsteps=40, cap=:keep)
     NKRoots.update!(R, z)
-    @test change(R.S; p=3) <= 1e-6 && R.S.steps < 40
-    A = Preconditioner(K, z; k=4, sweeps=5, tol=1e-5, maxsteps=40, p=3, cap=:keep, by=:turn)
-    @test turn(A.S; p=3) <= 1e-5 && A.S.steps < 40
+    @test maxturn(R.S; k=3) <= 1e-6 && R.S.steps < 40
 
     # ---- every = 2: updates at the Newton steps 1 and 3, and at step 2 the same E with no step ----
-    U = Preconditioner(K, z; k=4, sweeps=5, tol=0.0, maxsteps=1, cap=:keep, every=2)
+    U = Preconditioner(K, z; k′=4, sweeps=5, tol=0.0, maxsteps=1, cap=:keep, every=2)
     NKRoots.update!(U, z)
     E = copy(U.E)
     w = copy(z)
@@ -414,19 +449,24 @@ end
     @test U.updated == [true, false, true] && U.S.z === w && U.E != E
 
     # ---- every = 0: the first Newton step only ----
-    Z = Preconditioner(K, z; k=4, sweeps=5, tol=0.0, maxsteps=1, cap=:keep, every=0)
+    Z = Preconditioner(K, z; k′=4, sweeps=5, tol=0.0, maxsteps=1, cap=:keep, every=0)
     for _ in 1:3
         NKRoots.update!(Z, w)
     end
     @test Z.updated == [true, false, false]
-    @test_throws ArgumentError Preconditioner(K, z; k=4, every=-1)
+    @test_throws ArgumentError Preconditioner(K, z; k′=4, every=-1)
+    @test_throws ArgumentError Preconditioner(K, z; k′=4, k=5)
+
+    # ---- the size of the bases has no default: a call with k alone fails, not read as k′ ----
+    @test_throws UndefKeywordError Preconditioner(K, z; k=4)
+    @test_throws UndefKeywordError Subspace(K, z; k=4)
 
     # ---- the KS search with two steps per update and with the preconditioner of every second step
     #      both reach the orbit ----
     for (every, maxsteps) in ((1, 2), (2, 1))
         Random.seed!(2)
         u = copy(ks22_guess)
-        P = Preconditioner(K, u; k=4, sweeps=5, tol=0.0, maxsteps=maxsteps, cap=:keep, every=every)
+        P = Preconditioner(K, u; k′=4, sweeps=5, tol=0.0, maxsteps=maxsteps, cap=:keep, every=every)
         @test nkroot!(Residual(K), Jacobian(K, u), u; precond=P, flexible=true, krylov_dim=60,
                       krylov_tol=1e-8, Δ=1.0, tol=1e-10, maxiter=40, verbose=false).status === :converged
     end
@@ -463,6 +503,12 @@ end
     @test Residual(L; bounds=(1.0, 2.0))(similar(ab), ab).X == F(similar(ab), ab).X
     @test norm(Residual(L; bounds=(1.0, 1.5))(similar(ab), ab)) == Inf
     @test norm(Residual(L; bounds=(1.6, 2.0))(similar(ab), ab)) == Inf
+
+    # ---- a period that is not positive is out of the default bounds ----
+    for T in (0.0, -period(ab))
+        z = MultiVector(copy(ab.X), [T])
+        @test norm(F(similar(z), z)) == Inf
+    end
 end
 
 
@@ -559,7 +605,7 @@ end
     Random.seed!(2)
     ks(λ) = KSPropagator(; L=exp(λ))
     z   = copy(ks22)
-    out = continuation!(ks, z, log(22.0); target=log(22.1), precond=Preconditioner(K, z; k=4), krylov_dim=60,
+    out = continuation!(ks, z, log(22.0); target=log(22.1), precond=Preconditioner(K, z; k′=4), krylov_dim=60,
                         periods=(0.5period(ks22), 2period(ks22)), column=:difference)
     w   = copy(z)
     nkroot!(Residual(ks(log(22.1))), Jacobian(ks(log(22.1)), w), w; krylov_dim=60, krylov_tol=1e-8, Δ=1.0,
@@ -602,13 +648,13 @@ end
 
     # ---- the bases of the subspace are orthonormal in it, the coarse matrix is Wᵀ J W in it, and
     #      the KS search with the preconditioner reaches the orbit with a weight on the grid ----
-    M = Preconditioner(L, z; k=2)
+    M = Preconditioner(L, z; k′=2)
     @test all(a -> all(wdots(M.S.U[a], M.S.U[a]) .≈ 1), 1:2)
     @test maximum(abs, wdots(M.S.U[1], M.S.U[2])) < 1e-12
     Random.seed!(2)
     g = 1 .+ 0.5 .* cos.(2π .* (0:63) ./ 64)
     u = MultiVector(copy(ks22_guess.X), copy(ks22_guess.d); dots=(X, Y) -> sum(g .* X .* Y; dims=1))
-    @test nkroot!(Residual(K), Jacobian(K, u), u; precond=Preconditioner(K, u; k=4), flexible=true, krylov_dim=60,
+    @test nkroot!(Residual(K), Jacobian(K, u), u; precond=Preconditioner(K, u; k′=4), flexible=true, krylov_dim=60,
                   krylov_tol=1e-8, Δ=1.0, tol=1e-10, maxiter=40, verbose=false).status === :converged
     @test abs(period(u) - period(ks22)) < 1e-6
 end
