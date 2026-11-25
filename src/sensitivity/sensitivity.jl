@@ -62,7 +62,7 @@ function _forced(P, z::MultiVector)
 
     # ---- the end of the last segment shifted ----
     #      c_m = S(s) ∂φ_τ(u_m)/∂p
-    nshifts(z) > 0 && shift!(P, _tail(c.X), _shifts(z))
+    nshifts(z) > 0 && shift!(P, _tail(c.X), shifts(z))
 
     # ---- each row in the row of the seed it has to reach ----
     #      cᵢ₊₁ = ∂φ_τ(uᵢ)/∂p,   c₁ = S(s) ∂φ_τ(u_m)/∂p,   and a zero scalar part

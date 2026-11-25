@@ -65,7 +65,7 @@ function (F::Residual)(r::MultiVector, z::MultiVector)
 
     # ---- the end of the last segment shifted ----
     #      r_m = S(s) φ_τ(u_m)
-    nshifts(z) > 0 && shift!(F.P, _tail(r.X), _shifts(z))
+    nshifts(z) > 0 && shift!(F.P, _tail(r.X), shifts(z))
 
     # ---- each end point in the row of the seed it has to reach ----
     #      rᵢ₊₁ = φ_τ(uᵢ),   r₁ = S(s) φ_τ(u_m)

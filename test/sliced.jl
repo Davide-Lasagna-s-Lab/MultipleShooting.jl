@@ -1,6 +1,6 @@
 # A batch that is not an array, for the tests: a vector of states, each an array of its own,
 # advanced one at a time, with weights on the coordinates of a state in its inner product. It
-# gives the methods that MultipleShooting asks of a batch (src/batch.jl) and those of Base that
+# gives the methods that MultipleShooting asks of a batch (src/seeds.jl) and those of Base that
 # the package calls on one, and it broadcasts state by state.
 import Random
 

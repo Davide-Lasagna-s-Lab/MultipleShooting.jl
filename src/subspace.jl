@@ -163,7 +163,7 @@ function iterate!(S::Subspace)
     #      ψᵢ vᵢᵃ at point i + 1,   S(s) ψ_m v_mᵃ at point 1
     for a in 1:k′
         copyto!(S.V[a], _block(S.Vk′, a, m))
-        nshifts(z) > 0 && shift!(S.P, _tail(S.V[a]), _shifts(z))
+        nshifts(z) > 0 && shift!(S.P, _tail(S.V[a]), shifts(z))
         shift_forward!(S.V[a])
     end
 

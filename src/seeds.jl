@@ -1,7 +1,7 @@
 # Batches of states. The package does not know what a batch is: it is whatever the caller hands
 # over, the seeds of the segments or the vectors attached to them, and the propagator of the
 # caller advances it. The package only moves the states of a batch about, and combines batches by
-# broadcasting. What it asks of a batch are the public functions of this file,
+# broadcasting. What it asks of a batch are the public functions of this file, the first part,
 #
 #     nsegments(X)            the number of states
 #     states(X, r)            the states r, as a batch, without a copy
@@ -11,12 +11,19 @@
 #     dots(X, Y)              the inner products of the states, one per state
 #     coefficients(X, c)      coefficients one per state, in the form of dots
 #
-# and, of Base, `similar`, `copy`, `copyto!`, `randn!` and broadcasting.
+# and, of Base, `similar`, `copy`, `copyto!`, `randn!` and broadcasting. The second part holds the
+# functions of the package's own, with an underscore, built on the public ones: no batch has to
+# give them.
 #
 # The methods here are for an array whose last dimension runs over the states, so that a state may
 # be a vector, a field on a grid or an array on a GPU: a matrix of columns, or an array type of the
 # caller's, with `view` and `reverse!`. A batch of another kind, such as a vector of states
 # advanced one at a time, gives its own methods of these functions, and broadcasts state by state.
+
+
+# ---------------------------------------------------------------------------- #
+# public: what a batch gives                                                   #
+# ---------------------------------------------------------------------------- #
 
 """
     nsegments(X)
@@ -26,34 +33,11 @@ The number of states of a batch, the size of its last dimension for an array.
 nsegments(X) = size(X, ndims(X))
 
 """
-    dots(X, Y) -> c
-
-The inner products of the states of the batches `X` and `Y` one by one, real, in a form that
-broadcasts against a batch: for an array, an array whose last dimension runs over the states and
-the others have size one, on the device of `X`. The Euclidean product of the numbers of a state by
-default, the real part for complex ones. The caller gives a method for the type of its batches
-when the states have another product: GMRES, the phase conditions, the bases of the subspace
-iteration and the preconditioner all use it, so that they share one geometry.
-"""
-dots(X, Y) = sum(real.(conj.(X) .* Y); dims=1:ndims(X) - 1)
-
-# the inner product of two batches, the sum over their states
-_dot(X, Y) = sum(dots(X, Y))
-
-"""
     states(X, r) -> Y
 
 The states `r`, a range, of the batch `X`, as a batch that shares them, without a copy.
 """
 states(X, r::AbstractUnitRange) = selectdim(X, ndims(X), r)
-
-# the first and the last state of a batch, as a batch of one state: the first seed, and the end
-# of the last segment
-_head(X) = states(X, 1:1)
-_tail(X) = states(X, nsegments(X):nsegments(X))
-
-# block a of a batch made of blocks of m states, (a - 1)m + 1 to am
-_block(X, a::Int, m::Int) = states(X, ((a - 1)*m + 1):(a*m))
 
 """
     similar_states(X, b) -> Y
@@ -62,26 +46,6 @@ A batch like `X` with `b` states, its entries not set: for an array, of the type
 gives for the new size, which the propagator must be able to advance.
 """
 similar_states(X, b::Int) = similar(X, eltype(X), (Base.front(size(X))..., b))
-
-# k′ copies of the batch X, one after the other, as one batch of k′ blocks
-function _copies(X, k′::Int)
-    m   = nsegments(X)
-    Xk′ = similar_states(X, k′*m)
-    for a in 1:k′
-        copyto!(_block(Xk′, a, m), X)
-    end
-
-    return Xk′
-end
-
-"""
-    coefficients(X, c) -> a
-
-The coefficients of the vector `c`, one per state of the batch `X`, in the form of [`dots`](@ref),
-so that `a .* X` is every state times its own: for an array, on its device.
-"""
-coefficients(X, c::AbstractVector) =
-    copyto!(similar(X, real(eltype(X)), ntuple(_ -> 1, ndims(X) - 1)..., length(c)), c)
 
 """
     shift_forward!(X) -> X
@@ -129,4 +93,52 @@ function shift_backward!(X)
     reverse!(states(X, 1:nsegments(X)-1); dims=d)
 
     return X
+end
+
+"""
+    dots(X, Y) -> c
+
+The inner products of the states of the batches `X` and `Y` one by one, real, in a form that
+broadcasts against a batch: for an array, an array whose last dimension runs over the states and
+the others have size one, on the device of `X`. The Euclidean product of the numbers of a state by
+default, the real part for complex ones. The caller gives a method for the type of its batches
+when the states have another product: GMRES, the phase conditions, the bases of the subspace
+iteration and the preconditioner all use it, so that they share one geometry.
+"""
+dots(X, Y) = sum(real.(conj.(X) .* Y); dims=1:ndims(X) - 1)
+
+"""
+    coefficients(X, c) -> a
+
+The coefficients of the vector `c`, one per state of the batch `X`, in the form of [`dots`](@ref),
+so that `a .* X` is every state times its own: for an array, on its device.
+"""
+coefficients(X, c::AbstractVector) =
+    copyto!(similar(X, real(eltype(X)), ntuple(_ -> 1, ndims(X) - 1)..., length(c)), c)
+
+
+# ---------------------------------------------------------------------------- #
+# internal: built on the public functions                                      #
+# ---------------------------------------------------------------------------- #
+
+# the inner product of two batches, the sum over their states
+_dot(X, Y) = sum(dots(X, Y))
+
+# the first and the last state of a batch, as a batch of one state: the first seed, and the end
+# of the last segment
+_head(X) = states(X, 1:1)
+_tail(X) = states(X, nsegments(X):nsegments(X))
+
+# block a of a batch made of blocks of m states, (a - 1)m + 1 to am
+_block(X, a::Int, m::Int) = states(X, ((a - 1)*m + 1):(a*m))
+
+# k′ copies of the batch X, one after the other, as one batch of k′ blocks
+function _copies(X, k′::Int)
+    m   = nsegments(X)
+    Xk′ = similar_states(X, k′*m)
+    for a in 1:k′
+        copyto!(_block(Xk′, a, m), X)
+    end
+
+    return Xk′
 end

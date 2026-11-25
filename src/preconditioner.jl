@@ -174,7 +174,7 @@ function _assemble!(M::Preconditioner)
     # ---- the end points left by the subspace step, the end of the last segment shifted ----
     #      Xᵢ = φ_τ(uᵢ),   X_m = S(s) φ_τ(u_m)
     X = copy(S.tmp)
-    ns > 0 && shift!(P, _tail(X), _shifts(z))
+    ns > 0 && shift!(P, _tail(X), shifts(z))
 
     # ---- f there, each in the row of the seed it reaches, and the generators at the end of the
     #      last segment; f and the generators at the first seed ----

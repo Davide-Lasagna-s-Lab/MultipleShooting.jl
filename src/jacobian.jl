@@ -101,8 +101,8 @@ function NKRoots.update!(J::Jacobian, z::MultiVector)
 
     # ---- the end of the last segment shifted, and its derivative with it ----
     if nshifts(z) > 0
-        shift!(J.P, _tail(J.tmp), _shifts(z))
-        shift!(J.P, _tail(J.F), _shifts(z))
+        shift!(J.P, _tail(J.tmp), shifts(z))
+        shift!(J.P, _tail(J.F), shifts(z))
     end
 
     # ---- f and the generators at the end of the last segment, and at the first seed ----
@@ -133,7 +133,7 @@ function LinearAlgebra.mul!(out::MultiVector, J::Jacobian, v::MultiVector)
 
     # ---- the end of the last segment shifted ----
     #      out_m = S(s) ψ_m v_m
-    nshifts(J.z) > 0 && shift!(J.P, _tail(out.X), _shifts(J.z))
+    nshifts(J.z) > 0 && shift!(J.P, _tail(out.X), shifts(J.z))
 
     # ---- plus the period column, and the shift columns at the end of the last segment ----
     #      outᵢ += δT Fᵢ, Fᵢ = (1/m) ∂φ_τ(uᵢ)/∂τ,   out_m += Σⱼ δsⱼ gⱼ(S(s) φ_τ(u_m))

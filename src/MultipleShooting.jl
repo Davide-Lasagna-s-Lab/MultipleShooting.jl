@@ -26,6 +26,7 @@ export propagate!,
        period,
        nshifts,
        shift,
+       shifts,
        Residual,
        Jacobian,
        JacobianFD,
@@ -39,7 +40,7 @@ export propagate!,
        freesearch!,
        continuation!
 
-include("batch.jl")
+include("seeds.jl")
 include("interface.jl")
 include("multivector.jl")
 include("residual.jl")

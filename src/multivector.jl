@@ -4,7 +4,7 @@
 #     ⟨z, w⟩ = Σᵢ ⟨uᵢ, vᵢ⟩ + Σⱼ dⱼ d'ⱼ,
 #
 # where ⟨uᵢ, vᵢ⟩ is the inner product of two states, that of the batches of the seeds, dots (see
-# batch.jl): GMRES, the phase conditions, the bases of the subspace iteration and the
+# seeds.jl): GMRES, the phase conditions, the bases of the subspace iteration and the
 # preconditioner all take it from there, so that they share one geometry.
 #
 # Broadcasting acts on the two parts separately: an expression such as w .= α .* z .+ β .* w is
@@ -25,7 +25,7 @@ broadcasts like a vector, `w .= α .* z .+ w`, on the seeds and the scalars sepa
 
 # Arguments
 - `X`: the seeds, a batch of m states, as it is: an array whose last dimension runs over the
-  states, or a batch of the caller's (see batch.jl).
+  states, or a batch of the caller's (see seeds.jl).
 - `d::Vector{Float64}`: the scalars `[T, s₁, s₂, …]`, the period followed by one shift per
   continuous symmetry, `[T]` for a periodic orbit. [`period`](@ref), [`nshifts`](@ref) and
   [`shift`](@ref) read them.
@@ -77,8 +77,16 @@ function shift(z::MultiVector, i::Integer)
     return z.d[1 + i]
 end
 
-# all the shifts, as a view
-_shifts(z::MultiVector) = view(z.d, 2:lastindex(z.d))
+"""
+    shifts(z::MultiVector) -> s
+
+All the shifts, a view of the scalars of `z`, empty for a periodic orbit: what [`shift!`](@ref)
+takes.
+
+# Arguments
+- `z::MultiVector`: the unknowns.
+"""
+shifts(z::MultiVector) = view(z.d, 2:lastindex(z.d))
 
 Base.similar(z::MultiVector) = MultiVector(similar(z.X), similar(z.d))
 
