@@ -28,8 +28,8 @@ MultipleShooting.similar_states(X::Sliced, b::Int) = Sliced([similar(first(X.sta
 
 MultipleShooting.coefficients(X::Sliced, c::AbstractVector) = collect(Float64, c)
 
-MultipleShooting.shift_forward!(X::Sliced)  = (circshift!(X.states, 1); X)
-MultipleShooting.shift_backward!(X::Sliced) = (circshift!(X.states, -1); X)
+MultipleShooting.roll_forward!(X::Sliced)  = (circshift!(X.states, 1); X)
+MultipleShooting.roll_backward!(X::Sliced) = (circshift!(X.states, -1); X)
 
 # ---- what Base gives for an array ----
 Base.similar(X::Sliced)            = Sliced(map(similar, X.states), X.q)

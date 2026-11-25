@@ -51,7 +51,7 @@
 #
 #     V[1] = (v₁¹, v₂¹, …, v_m¹),   …,   V[k′] = (v₁ᵏ′, v₂ᵏ′, …, v_mᵏ′),
 #
-# so that each is shifted and moved forward as a vector of the Jacobian is. A step hands them all
+# so that each is shifted and rolled forward as a vector of the Jacobian is. A step hands them all
 # to tangent!, the vector of the k′ batches as it is, and it is for the propagator to advance them
 # together, the m k′ states at once on a GPU, with the shooting points integrated once for all the
 # directions. Gram–Schmidt runs across the k′ batches, state by state, in the order of the
@@ -154,7 +154,7 @@ function iterate!(S::Subspace)
     #      V[a] = (S(s) ψ_m v_mᵃ, ψ₁ v₁ᵃ, …, ψ_{m-1} v_{m-1}ᵃ)
     for a in 1:k′
         nshifts(z) > 0 && shift!(S.P, _tail(S.V[a]), shifts(z))
-        shift_forward!(S.V[a])
+        roll_forward!(S.V[a])
     end
 
     # ---- the Galerkin blocks of the bases before the step: the images, not yet orthonormal, in
@@ -256,8 +256,7 @@ function update!(S::Subspace, z::MultiVector; tol::Real,
     while S.steps < maxsteps
         iterate!(S)
         S.steps += 1
-        maxturn(S; k) <= ε_sub &&
-            return S
+        maxturn(S; k) <= ε_sub && return S
     end
 
     # ---- the test failed after the cap: the bases kept as they are, or an error ----
@@ -268,7 +267,7 @@ function update!(S::Subspace, z::MultiVector; tol::Real,
 end
 
 # The Galerkin blocks of the bases U before a step, from their images V before Gram–Schmidt, k′
-# batches each. After the shift forward the image of segment i sits at point i + 1, cyclically, and its
+# batches each. After the roll forward the image of segment i sits at point i + 1, cyclically, and its
 # coordinates in the basis there are the block of segment i,
 #
 #     Eᵢ = Uᵢ₊₁ᵀ ψᵢ Uᵢ,   E_m = U₁ᵀ S(s) ψ_m U_m,

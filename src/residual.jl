@@ -69,7 +69,7 @@ function (F::Residual)(r::MultiVector, z::MultiVector)
 
     # ---- each end point in the row of the seed it has to reach ----
     #      rᵢ₊₁ = φ_τ(uᵢ),   r₁ = S(s) φ_τ(u_m)
-    shift_forward!(r.X)
+    roll_forward!(r.X)
 
     # ---- minus the unknowns: the seeds, and the scalars, which r still holds from z, so that
     #      the scalar part of the residual is zero ----

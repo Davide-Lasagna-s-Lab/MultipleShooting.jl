@@ -66,7 +66,7 @@ function _forced(P, z::MultiVector)
 
     # ---- each row in the row of the seed it has to reach ----
     #      cᵢ₊₁ = ∂φ_τ(uᵢ)/∂p,   c₁ = S(s) ∂φ_τ(u_m)/∂p,   and a zero scalar part
-    shift_forward!(c.X)
+    roll_forward!(c.X)
 
     return c
 end

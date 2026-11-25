@@ -6,8 +6,8 @@
 #     nsegments(X)            the number of states
 #     states(X, r)            the states r, as a batch, without a copy
 #     similar_states(X, b)    a batch like X with b states
-#     shift_forward!(X)       the states moved forward by one slot, cyclically
-#     shift_backward!(X)      and back by one
+#     roll_forward!(X)        the states moved forward by one slot, cyclically
+#     roll_backward!(X)       and back by one
 #     dots(X, Y)              the inner products of the states, one per state
 #     coefficients(X, c)      coefficients one per state, in the form of dots
 #
@@ -48,7 +48,7 @@ gives for the new size, which the propagator must be able to advance.
 similar_states(X, b::Int) = similar(X, eltype(X), (Base.front(size(X))..., b))
 
 """
-    shift_forward!(X) -> X
+    roll_forward!(X) -> X
 
 Move the states of the batch `X` forward by one slot, forward in time along the orbit, cyclically
 and in place: state i goes into slot i + 1, and the last state into slot 1,
@@ -57,7 +57,7 @@ and in place: state i goes into slot i + 1, and the last state into slot 1,
 
 In multiple shooting this puts the end of each segment in the row of the seed it has to reach.
 """
-function shift_forward!(X)
+function roll_forward!(X)
     # By two reversals along the last dimension, all of it, then all but the first slot, each in
     # place; with five states,
     #
@@ -74,15 +74,15 @@ function shift_forward!(X)
 end
 
 """
-    shift_backward!(X) -> X
+    roll_backward!(X) -> X
 
 Move the states of the batch `X` back by one slot, backward in time, cyclically and in place, the
-inverse of [`shift_forward!`](@ref): state i goes into slot i - 1, and the first state into the
+inverse of [`roll_forward!`](@ref): state i goes into slot i - 1, and the first state into the
 last slot,
 
     X = (x₁, x₂, x₃)   →   X = (x₂, x₃, x₁)
 """
-function shift_backward!(X)
+function roll_backward!(X)
     # all of it reversed, then all but the last slot,
     #
     #     X                                  (x₁, x₂, x₃, x₄, x₅)

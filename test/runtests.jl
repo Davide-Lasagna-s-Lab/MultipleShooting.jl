@@ -84,9 +84,9 @@ ks_search!(z) = nkroot!(Residual(K), Jacobian(K, z), z; krylov_dim=60, krylov_to
     # ---- the states moved forward by one slot, and back, with both batches ----
     for X in (copy(A), slice(A))
         cols(Y) = Y isa Sliced ? reduce(hcat, Y) : Y
-        @test cols(MultipleShooting.shift_forward!(X)) == A[:, [3, 1, 2]]
-        @test cols(MultipleShooting.shift_backward!(X)) == A
-        @test cols(MultipleShooting.shift_backward!(X)) == A[:, [2, 3, 1]]
+        @test cols(MultipleShooting.roll_forward!(X)) == A[:, [3, 1, 2]]
+        @test cols(MultipleShooting.roll_backward!(X)) == A
+        @test cols(MultipleShooting.roll_backward!(X)) == A[:, [2, 3, 1]]
     end
 end
 
