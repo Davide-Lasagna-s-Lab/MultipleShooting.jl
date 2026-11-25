@@ -28,11 +28,12 @@ once, a central one twice, and the tangent equation never. `mul!(out, J, v)` or 
 - `difference::Symbol=:forward`: `:forward` or `:central`, as for `jacobianFD`.
 - `ϵ`: the relative step of `jacobianFD`, or `nothing` for its default.
 """
-mutable struct JacobianFD{PT, V<:ShootingVector, D, H}
+mutable struct JacobianFD{PT, V<:ShootingVector, D, A, H}
     P::PT        # the propagator
     z::V         # the point, not a copy
     D::D         # the finite difference of the residual, of NKRoots.jl, at z
-    f::H         # f at the first seed, a batch of one state
+    f::A         # f at the seeds, for the phase condition at the first: computed at all of them,
+                 # so that the propagator sees batches of m states only
     g::Vector{H} # the generators at the first seed, one per shift
 
     function JacobianFD(P, z::ShootingVector; difference::Symbol=:forward,
@@ -41,10 +42,11 @@ mutable struct JacobianFD{PT, V<:ShootingVector, D, H}
         D = NKRoots.jacobianFD(Residual(P), z; difference=difference, ϵ=ϵ)
 
         # ---- the storage of the phase rows, filled by update! ----
-        f = similar(head(z.X))
-        g = typeof(f)[similar(f) for _ in 1:nshifts(z)]
+        f = similar(z.X)
+        h = similar(head(z.X))
+        g = typeof(h)[similar(h) for _ in 1:nshifts(z)]
 
-        J = new{typeof(P), typeof(z), typeof(D), typeof(f)}(P,
+        J = new{typeof(P), typeof(z), typeof(D), typeof(f), typeof(h)}(P,
                                                             z,
                                                             D,
                                                             f,
@@ -72,8 +74,9 @@ function NKRoots.update!(J::JacobianFD, z::ShootingVector, r::ShootingVector)
     # ---- the difference at z, with the residual there ----
     NKRoots.update!(J.D, z, r)
 
-    # ---- f and the generators at the first seed, the phase rows ----
-    rhs!(J.P, J.f, head(z.X))
+    # ---- f at all the seeds, of which the phase rows take the first, and the generators at
+    #      the first seed ----
+    rhs!(J.P, J.f, z.X)
     for j in 1:nshifts(z)
         dshift!(J.P, J.g[j], head(z.X), j)
     end
@@ -90,7 +93,7 @@ function LinearAlgebra.mul!(out::ShootingVector, J::JacobianFD, v::ShootingVecto
 
     # ---- the phase conditions, in time and in space ----
     #      d₁ = ⟨f(u₁), v₁⟩,   d₁₊ⱼ = ⟨gⱼ(u₁), v₁⟩
-    out.d[1] = _dot(J.f, head(v.X))
+    out.d[1] = _dot(head(J.f), head(v.X))
     for j in 1:nshifts(J.z)
         out.d[1 + j] = _dot(J.g[j], head(v.X))
     end

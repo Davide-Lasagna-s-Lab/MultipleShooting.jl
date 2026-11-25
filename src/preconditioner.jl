@@ -191,7 +191,7 @@ function _assemble!(M::Preconditioner)
     #      f₁ = f(u₁),   g₁ⱼ = gⱼ(u₁)
     F  = roll_forward!(rhs!(P, similar(X), X))
     G  = [dshift!(P, similar(tail(X)), tail(X), j) for j in 1:ns]
-    f₁ = rhs!(P, similar(head(z.X)), head(z.X))
+    f₁ = head(rhs!(P, similar(z.X), z.X))
     g₁ = [dshift!(P, similar(head(z.X)), head(z.X), j) for j in 1:ns]
 
     # ---- the projections on the bases, one per seed, brought to the host: dots gives them

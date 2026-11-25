@@ -52,18 +52,20 @@ mutable struct Jacobian{PT, V<:ShootingVector, A, H}
          F::A         # the column of the period: in row i, the derivative in T of the end of
                       # segment i, 1/m times that in τ by dpropagate!, the last one shifted
          G::Vector{H} # the generators at the shifted end of the last segment, one per shift
-         f::H         # f at the first seed, a batch of one state
+         f::A         # f at the seeds, for the phase condition at the first: computed at all of
+                      # them, so that the propagator sees batches of m states only
          g::Vector{H} # the generators at the first seed, one per shift
 
     function Jacobian(P, z::ShootingVector)
         # ---- the storage, filled by update! ----
         tmp = similar(z.X)
         F = similar(z.X)
-        f = similar(head(z.X))
-        G = typeof(f)[similar(f) for _ in 1:nshifts(z)]
-        g = typeof(f)[similar(f) for _ in 1:nshifts(z)]
+        f = similar(z.X)
+        h = similar(head(z.X))
+        G = typeof(h)[similar(h) for _ in 1:nshifts(z)]
+        g = typeof(h)[similar(h) for _ in 1:nshifts(z)]
 
-        J = new{typeof(P), typeof(z), typeof(F), typeof(f)}(P,
+        J = new{typeof(P), typeof(z), typeof(F), typeof(h)}(P,
                                                              z,
                                                              tmp,
                                                              F,
@@ -105,8 +107,9 @@ function NKRoots.update!(J::Jacobian, z::ShootingVector)
         shift!(J.P, tail(J.F), shifts(z))
     end
 
-    # ---- f and the generators at the end of the last segment, and at the first seed ----
-    rhs!(J.P, J.f, head(z.X))
+    # ---- f and the generators at the end of the last segment, and at the first seed: f at all
+    #      the seeds, of which the phase condition takes the first ----
+    rhs!(J.P, J.f, z.X)
     for j in 1:nshifts(z)
         dshift!(J.P, J.G[j], tail(J.tmp), j)
         dshift!(J.P, J.g[j], head(z.X), j)
@@ -149,7 +152,7 @@ function LinearAlgebra.mul!(out::ShootingVector, J::Jacobian, v::ShootingVector)
 
     # ---- the phase conditions, in time and in space ----
     #      d₁ = ⟨f(u₁), v₁⟩,   d₁₊ⱼ = ⟨gⱼ(u₁), v₁⟩
-    out.d[1] = _dot(J.f, head(v.X))
+    out.d[1] = _dot(head(J.f), head(v.X))
     for j in 1:nshifts(J.z)
         out.d[1 + j] = _dot(J.g[j], head(v.X))
     end
