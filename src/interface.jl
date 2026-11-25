@@ -4,7 +4,7 @@
 # time. A
 # propagator is a type of the user's, for which these methods are defined:
 #
-#     propagate!(P, X, τ)      advance every state of X by its time τᵢ         residual
+#     propagate!(P, X, τ)      advance every state of X by the time τ          residual
 #     dpropagate!(P, X, V, τ)  as propagate!, and V the derivative in τ of the  period
 #                              end points; by default f at the end points
 #     rhs!(P, F, X)            the time derivative f at every state of X       period, phase
@@ -116,14 +116,14 @@ of `X`, which are advanced once, all in place,
 
 as a subspace step needs for the k′ directions of every shooting point. The default integrates the
 states k′ times: it advances k′ copies of `X`, one beside each block, by `tangent!`. A propagator
-gives its own method, for one time `τ::Real`, to integrate the states once for all the blocks.
+gives its own method to integrate the states once for all the blocks.
 
 # Arguments
 - `P`: the propagator.
 - `X::AbstractSeeds{M, 1}`: a batch of M states, overwritten with their images.
 - `V::AbstractSeeds{M, k′}`: a batch of k′ M perturbations, block a in the places (a - 1)M + 1 to
   aM, overwritten with their images by the tangent maps.
-- `τ`: the time, or the vector of the times of the m states.
+- `τ::Real`: the time.
 """
 function tangents!(P, X::AbstractSeeds{M, 1}, V::AbstractSeeds{M, K}, τ::Real) where {M, K}
     Xk′ = _copies(X, K)
@@ -190,48 +190,3 @@ From `V = 0` it gives the derivative of the end points in the parameter, vᵢ = 
 - `τ::Real`: the time.
 """
 function forced! end
-
-
-# ---------------------------------------------------------------------------- #
-# one time per state                                                           #
-# ---------------------------------------------------------------------------- #
-
-# The package calls the propagator with a vector of times, one per state of the batch, the lengths
-# of the segments. It does not choose how a batch is advanced over unequal times: a propagator
-# that allows them gives methods with `τ::AbstractVector`. For the others, these methods pass
-# equal times on as one number, and refuse unequal ones.
-function _onetime(τ::AbstractVector)
-    all(==(first(τ)), τ) ||
-        throw(ArgumentError("the segments have unequal lengths, and the propagator has no " *
-                            "method with a vector of times"))
-
-    return first(τ)
-end
-
-propagate!(P, X, τ::AbstractVector)     = propagate!(P, X, _onetime(τ))
-
-# the derivative of the end points in their times: that of the propagator for one time, and for
-# unequal times its default, the right-hand side at the end points
-function dpropagate!(P, X, V, τ::AbstractVector)
-    all(==(first(τ)), τ) &&
-        return dpropagate!(P, X, V, first(τ))
-    propagate!(P, X, τ)
-
-    return rhs!(P, V, X)
-end
-tangent!(P, X, V, τ::AbstractVector)    = tangent!(P, X, V, _onetime(τ))
-forced!(P, X, V, τ::AbstractVector)     = forced!(P, X, V, _onetime(τ))
-
-# the k′ blocks of V along the states of X: for equal times the method for one time, which a
-# propagator may give; for unequal ones the default, k′ copies of the states each with its time
-function tangents!(P, X::AbstractSeeds{M, 1}, V::AbstractSeeds{M, K}, τ::AbstractVector) where {M, K}
-    all(==(first(τ)), τ) &&
-        return tangents!(P, X, V, first(τ))
-    Xk′ = _copies(X, K)
-
-    # ---- every block along its own copy of the states, and the end points from the first ----
-    tangent!(P, Xk′, V, repeat(τ, K))
-    _copyto!(X, _block(Xk′, 1))
-
-    return V
-end

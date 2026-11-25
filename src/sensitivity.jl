@@ -58,7 +58,7 @@ function _forced(P, z::MultiVector)
 
     # ---- advanced over their segments by the forced tangent equation ----
     #      cᵢ = ∂φ_τ(uᵢ)/∂p
-    forced!(P, X, c.X, times(z))
+    forced!(P, X, c.X, period(z)/nsegments(z))
 
     # ---- the end of the last segment shifted ----
     #      c_m = S(s) ∂φ_τ(u_m)/∂p

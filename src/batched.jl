@@ -24,9 +24,6 @@ _randn!(X::Batched) = (Random.randn!(parent(X)); X)
 _coefficients(X::Batched, c::AbstractVector) =
     copyto!(similar(parent(X), real(eltype(X)), ntuple(_ -> 1, ndims(X) - 1)..., length(c)), c)
 
-# every state of X times its own coefficient, in place
-_scale!(X::Batched, c::AbstractVector) = (parent(X) .*= _coefficients(X, c); X)
-
 # dest ← src, the data of the states
 _copyto!(dest::Batched, src::Batched) = (copyto!(parent(dest), parent(src)); dest)
 

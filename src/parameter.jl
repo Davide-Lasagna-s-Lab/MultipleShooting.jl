@@ -32,10 +32,10 @@
 const _ETA = 1e-3 # share of the fall of a linear problem that a step must reach
 
 # the unknowns z, or a vector like them, and the parameter p as one vector, with seeds of its own
-_extended(z::MultiVector, p::Real) = MultiVector(_copy(z.X), [z.d; p], z.w)
+_extended(z::MultiVector, p::Real) = MultiVector(_copy(z.X), [z.d; p])
 
 # the unknowns of an extended vector, sharing its seeds
-_unknowns(x::MultiVector) = MultiVector(x.X, x.d[1:(end - 1)], x.w)
+_unknowns(x::MultiVector) = MultiVector(x.X, x.d[1:(end - 1)])
 
 # the preconditioner M of the unknowns applied to an extended vector, the identity on the
 # parameter, or no preconditioner at all
@@ -45,7 +45,7 @@ function _precondition(M, y::MultiVector)
     v = _unknowns(y)
     o = LinearAlgebra.ldiv!(similar(v), M, v)
 
-    return MultiVector(o.X, [o.d; y.d[end]], y.w)
+    return MultiVector(o.X, [o.d; y.d[end]])
 end
 
 # the Jacobian J, and the preconditioner M when there is one, moved to the unknowns z with the

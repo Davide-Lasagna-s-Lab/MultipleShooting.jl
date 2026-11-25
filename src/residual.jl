@@ -1,7 +1,7 @@
 # The residual of multiple shooting.
 #
-# With seeds u₁, …, u_m and period T the segments have the lengths τ₁, …, τ_m, which add up to T,
-# equal to T/m unless the unknowns say otherwise (see times), and the equations are
+# With seeds u₁, …, u_m and period T the segments have the same length τ = T/m, and the equations
+# are
 # φ_τ(uᵢ) - uᵢ₊₁ = 0 for i < m and S(s) φ_τ(u_m) - u₁ = 0, which closes the orbit, with S(s) the
 # shift of a relative periodic orbit, the identity for a periodic one. The equation of
 # segment i sits in the row of segment i + 1, that of segment m in row 1. With these reordered
@@ -53,7 +53,7 @@ function (F::Residual)(r::MultiVector, z::MultiVector)
     F.bounds[1] < period(z) < F.bounds[2] ||
         return r .= Inf
 
-    τ = times(z)
+    τ = period(z)/nsegments(z)
 
     # ---- the seeds ----
     #      rᵢ = uᵢ

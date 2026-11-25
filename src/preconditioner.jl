@@ -18,7 +18,7 @@
 # accuracy,
 #
 #     E[i + 1, i] = Eᵢ,   E[1, m] = E_m = U₁ᵀ S(s) ψ_m U_m,   E[i, i] = -I,
-#     E[i + 1, T] = wᵢ Uᵢ₊₁ᵀ f(φ_τ(uᵢ)),   E[1, sⱼ] = U₁ᵀ gⱼ(S(s) φ_τ(u_m)),
+#     E[i + 1, T] = Uᵢ₊₁ᵀ f(φ_τ(uᵢ))/m,   E[1, sⱼ] = U₁ᵀ gⱼ(S(s) φ_τ(u_m)),
 #     E[T, 1] = f(u₁)ᵀ U₁,   E[sⱼ, 1] = gⱼ(u₁)ᵀ U₁,
 #
 # with f and the generators at the end points of the segments and at the first seed: the column of
@@ -207,7 +207,7 @@ function _assemble!(M::Preconditioner)
         end
         for a in 1:k′
             entry!(seed(i)[a], seed(i)[a], -1.0)
-            entry!(seed(j)[a], T, pf[a][j]*z.w[i])
+            entry!(seed(j)[a], T, pf[a][j]/m)
         end
     end
 

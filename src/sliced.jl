@@ -20,9 +20,6 @@ _randn!(X::Sliced) = (foreach(Random.randn!, parent(X)); X)
 # coefficients one per state, from a vector on the host, in the shape of dots, a vector
 _coefficients(X::Sliced, c::AbstractVector) = collect(Float64, c)
 
-# every state of X times its own coefficient, in place
-_scale!(X::Sliced, c::AbstractVector) = (foreach((x, a) -> x .*= a, parent(X), c); X)
-
 # dest ← src, the data of the states: copying a vector of states with .= would copy the references
 _copyto!(dest::Sliced, src::Sliced) = (foreach((d, s) -> d .= s, parent(dest), parent(src)); dest)
 

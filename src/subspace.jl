@@ -156,7 +156,7 @@ function iterate!(S::Subspace)
     #      become the end points of the segments ----
     #      vᵢᵃ ← ψᵢ vᵢᵃ,   Xᵢ = φ_τ(uᵢ)
     _copyto!(S.tmp, z.X)
-    tangents!(S.P, S.tmp, S.Vk′, times(z))
+    tangents!(S.P, S.tmp, S.Vk′, period(z)/nsegments(z))
 
     # ---- the step: each image back in its batch, at the point it reaches, the last shifted ----
     #      ψᵢ vᵢᵃ at point i + 1,   S(s) ψ_m v_mᵃ at point 1

@@ -145,49 +145,6 @@ end
 end
 
 
-@testset "segments of unequal length               " begin
-    # ---- seeds along the orbit AB at unequal times, the first seed and the period those of ab ----
-    T = period(ab)
-    τ = T .* [0.1, 0.4, 0.2, 0.3]
-    X = [ab.X[:, 1]]
-    for i in 1:3
-        push!(X, rk4!(_rhs(L), copy(X[end]), τ[i], L.dt))
-    end
-    u = MultiVector(Seeds(X), [T]; τ=τ)
-    @test times(u) ≈ τ
-    @test sum(times(u)) ≈ T
-
-    # ---- the residual is small on the orbit, and a search brings it to zero at the same period ----
-    @test norm(F(similar(u), u)) < 1e-6
-    nkroot!(F, Jacobian(L, u), u; krylov_dim=20, krylov_tol=1e-8, Δ=1.0, tol=1e-10, maxiter=50,
-            verbose=false)
-    @test norm(F(similar(u), u)) < 1e-9
-    @test period(u) ≈ T rtol=1e-6
-    @test times(u) ≈ period(u) .* [0.1, 0.4, 0.2, 0.3]
-
-    # ---- off the orbit, the whole Jacobian, with the column of the period, against central
-    #      differences of the residual ----
-    Random.seed!(1)
-    w = MultiVector(Seeds([x .+ 1e-2 .* randn(3) for x in u.X]), copy(u.d); τ=times(u))
-    J = Jacobian(L, w)
-    flat(v) = [reduce(vcat, v.X); v.d]
-    similar_unit(z, k) = (e = similar(z); e .= 0; k <= 12 ? (e.X[(k - 1) ÷ 3 + 1][(k - 1) % 3 + 1] = 1) : (e.d[1] = 1); e)
-    A = reduce(hcat, [flat(J*similar_unit(w, k)) for k in 1:13])
-    D = reduce(hcat, [flat(F(similar(w), w .+ 1e-6 .* similar_unit(w, k)) .-
-                           F(similar(w), w .- 1e-6 .* similar_unit(w, k))) ./ 2e-6 for k in 1:13])
-    @test norm(A[1:12, :] - D[1:12, :]) < 1e-6*norm(A[1:12, :])
-
-    # ---- equal times given by hand are the default ----
-    v = sliced(ab)
-    @test F(similar(v), MultiVector(v.X, copy(v.d); τ=fill(T/4, 4))).X ≈ F(similar(v), v).X
-
-    # ---- a propagator without a method for a vector of times refuses unequal ones ----
-    @test_throws ArgumentError F(similar(ab), MultiVector(copy(ab.X), [T]; τ=τ))
-    @test_throws ArgumentError MultiVector(copy(ab.X), [T]; τ=[0.1, 0.2, 0.3])
-    @test_throws ArgumentError MultiVector(copy(ab.X), [T]; τ=2 .* τ)
-end
-
-
 @testset "period column                            " begin
     # ---- with a step of 10⁻², the column of the period against central differences of the residual
     #      in T at the same number of steps: dpropagate! of the Lorenz propagator, the forced
@@ -249,7 +206,7 @@ end
     # ---- the packed step advances each direction as tangent! does on it alone, leaves the end
     #      points of the segments, and gives the Galerkin blocks of the bases before it,
     #      Eᵢ = Uᵢ₊₁ᵀ ψᵢ Uᵢ ----
-    τ = MultipleShooting.times(ab)
+    τ = period(ab)/4
     W = map(S.V) do Vᵃ
         tangent!(L, copy(ab.X), copy(Vᵃ), τ)
     end
@@ -313,35 +270,6 @@ end
 # ---- the KS orbit, converged once for the test below ----
 ks22 = copy(ks22_guess)
 ks_search!(ks22)
-
-
-@testset "unequal segments on the KS orbit         " begin
-    # ---- the orbit at L = 22 cut at unequal times: the search closes it at the same period, and the Jacobian
-    #      matches central differences of the residual, the column of the period to the error of the scheme ----
-    z = ks22
-    T = period(z)
-    m = nsegments(z)
-    w = collect(1.0:m) ./ sum(1.0:m)
-    X = zeros(size(z.X))
-    x = z.X[:, 1:1]
-    for i in 1:m
-        X[:, i] .= vec(x)
-        propagate!(K, x, w[i]*T)
-    end
-    u = MultiVector(Seeds(X), copy(z.d); τ=w .* T)
-    ks_search!(u)
-    @test norm(Residual(K, period(u))(similar(u), u)) < 1e-9
-    @test period(u) ≈ T rtol=1e-6
-
-    Random.seed!(1)
-    y = MultiVector(Seeds(u.X .+ 1e-3 .* randn(size(u.X))), copy(u.d); τ=times(u))
-    v = similar(y)
-    v.X .= randn(size(y.X))
-    v.d .= 0
-    R(q) = Residual(K, period(q))(similar(q), q)
-    D = (R(y .+ 1e-6 .* v).X .- R(y .- 1e-6 .* v).X) ./ 2e-6
-    @test norm((Jacobian(K, y)*v).X - D) < 1e-6*norm(D)
-end
 
 
 @testset "subspace iteration on the KS orbit       " begin
