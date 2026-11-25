@@ -1,8 +1,9 @@
-# A guess of the shortest relative periodic orbit of Kuramoto–Sivashinsky at L = 22, on the grid of
-# KSPropagator(): four seeds, the columns, a quarter of the period apart along a trajectory, from
-# its closest return up to a shift with a period between 15.8 and 16.8 and a shift of size between
-# 2 and 4, found once offline: a distance of 2.97 at T = 16.8 and s = -2.92.
-const ks22_guess = MultiVector([
+# A guess of the shortest relative periodic orbit of Kuramoto–Sivashinsky at L = 22: four seeds,
+# the columns, on a grid of 64 points, a quarter of the period apart along a trajectory, from its
+# closest return up to a shift with a period between 15.8 and 16.8 and a shift of size between
+# 2 and 4, found once offline: a distance of 2.97 at T = 16.8 and s = -2.92. The seeds are turned
+# into the Fourier coefficients of the modes kept by KSPropagator(), k = 1, …, 21.
+const ks22_guess = MultiVector((rfft([
        0.4117151887    0.1928492014    0.5151292395    1.3806633107;
        0.6137658100    0.1916519380    0.2335766788    0.6959383804;
        0.8526243083    0.2053109655   -0.0659228696   -0.0739167081;
@@ -66,4 +67,4 @@ const ks22_guess = MultiVector([
       -0.2025637952    0.1761819494    1.0613475548    2.0986345414;
       -0.0508465387    0.2020552454    1.0279917566    2.2204755444;
        0.0919744939    0.2072360594    0.9253527047    2.1635333299;
-       0.2413986373    0.2010220425    0.7517948301    1.8852976745], [16.8, -2.921875])
+       0.2413986373    0.2010220425    0.7517948301    1.8852976745], 1) ./ 64)[2:22, :], [16.8, -2.921875])

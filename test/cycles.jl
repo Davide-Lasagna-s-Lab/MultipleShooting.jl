@@ -4,7 +4,7 @@
 #     x' = g x - y,   y' = g y + x,   g = μ + r² - r⁴,   r² = x² + y².
 #
 # For -1/4 < μ < 0 the circles r² = (1 ± √(1 + 4μ))/2 are orbits of period 2π. They meet at
-# μ = -1/4, with r² = 1/2, and below there is none. Advanced by the RK4 of lorenz.jl, batched.
+# μ = -1/4, with r² = 1/2, and below there is none. Advanced by the RK4 of Flows.jl, as in lorenz.jl.
 
 # ---- the right-hand side at μ, and its linearisation at x applied to v, column by column ----
 function cycle_rhs!(dX::AbstractMatrix, X::AbstractMatrix, μ)
@@ -35,18 +35,22 @@ struct CyclePropagator
      μ::Float64 # the parameter μ
 end
 
+# the right-hand side and its linearisation at the μ of P, as a flow of Flows.jl calls them
+_rhs(P::CyclePropagator) = (t, X, dX) -> cycle_rhs!(dX, X, P.μ)
+_lin(P::CyclePropagator) = (t, X, dX, V, dV) -> cycle_lin!(dV, X, V, P.μ)
+
 MultipleShooting.propagate!(P::CyclePropagator, X::AbstractMatrix, τ::Real) =
-    (rk4!((dX, Y) -> cycle_rhs!(dX, Y, P.μ), X, τ, P.dt); X)
+    advance!(_rhs(P), X, τ, P.dt)
 
 MultipleShooting.tangent!(P::CyclePropagator, X::AbstractMatrix, V::AbstractMatrix, τ::Real) =
-    (rk4!((dX, Y) -> cycle_rhs!(dX, Y, P.μ), (dV, Y, W) -> cycle_lin!(dV, Y, W, P.μ), X, V, τ, P.dt); V)
+    advance!(_rhs(P), _lin(P), X, V, τ, P.dt)
 
 MultipleShooting.tangent!(P::CyclePropagator, X::AbstractMatrix, V::AbstractVector{<:AbstractMatrix}, τ::Real) =
     directions!(P, X, V, τ)
 
 # the tangent equation forced by the derivative of the right-hand side in μ, ∂f/∂μ = (x, y)
 MultipleShooting.forced!(P::CyclePropagator, X::AbstractMatrix, V::AbstractMatrix, τ::Real) =
-    (rk4!((dX, Y) -> cycle_rhs!(dX, Y, P.μ), (dV, Y, W) -> (cycle_lin!(dV, Y, W, P.μ); dV .+= Y; dV), X, V, τ, P.dt); V)
+    advance!(_rhs(P), (t, Y, dY, W, dW) -> (cycle_lin!(dW, Y, W, P.μ); dW .+= Y; dW), X, V, τ, P.dt)
 
 MultipleShooting.rhs!(P::CyclePropagator, F::AbstractMatrix, X::AbstractMatrix) = cycle_rhs!(F, X, P.μ)
 

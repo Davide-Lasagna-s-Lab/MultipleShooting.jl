@@ -287,7 +287,7 @@ ks_search!(ks22)
     @test_throws ArgumentError maxturn(S; k=5)
     g = dshift!(K, similar(ks22.X), ks22.X, 1)
     Vᵢ(i) = reduce(hcat, [Vᵃ[:, i] for Vᵃ in S.V])
-    @test maximum(norm(g[:, i] - Vᵢ(i)*(Vᵢ(i)'*g[:, i]))/norm(g[:, i]) for i in 1:4) < 1e-10
+    @test maximum(norm(g[:, i] - Vᵢ(i)*real.(Vᵢ(i)'*g[:, i]))/norm(g[:, i]) for i in 1:4) < 1e-10
 end
 
 
@@ -351,11 +351,13 @@ end
     @test_throws ErrorException ldiv!(similar(ab), B, unflat(x))
     @test_throws ErrorException gram(B, Q)
 
-    # ---- the KS search with the preconditioner, k′ = 4, reaches the orbit ----
+    # ---- the KS search with the preconditioner reaches the orbit, with k′ = 4 and the test on
+    #      the three leading directions: away from the orbit the fourth and the fifth exponents
+    #      may pair, and the fourth direction, a guard vector here, never settles ----
     Random.seed!(2)
     z  = copy(ks22_guess)
     Jk = Jacobian(K, z)
-    @test nkroot!(Residual(K), Jk, z; precond=Preconditioner(K, z; k′=4), flexible=true, krylov_dim=60,
+    @test nkroot!(Residual(K), Jk, z; precond=Preconditioner(K, z; k′=4, k=3), flexible=true, krylov_dim=60,
                   krylov_tol=1e-8, Δ=1.0, tol=1e-10, maxiter=40, verbose=false).status === :converged
 end
 
