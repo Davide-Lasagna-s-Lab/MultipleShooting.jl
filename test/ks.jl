@@ -137,9 +137,13 @@ function MultipleShooting.tangent!(P::KSPropagator, X::AbstractMatrix, V::Abstra
     n = max(1, ceil(Int, τ/P.dt))
     E, E₂, Q, f₁, f₂, f₃ = _etdrk4(P.Λ, τ/n)
 
+    # ---- the states once beside each of the k′ blocks of V, since a stage pairs a state with a
+    #      vector ----
+    Y = repeat(X, 1, size(V, 2) ÷ size(X, 2))
+
     # ---- the transforms, the states and the vectors in Fourier space, and their stages ----
-    W  = _ks_work(X)
-    v̂  = _ks_fourier!(similar(W.ŵ), P, W, X)
+    W  = _ks_work(Y)
+    v̂  = _ks_fourier!(similar(W.ŵ), P, W, Y)
     δv̂ = _ks_fourier!(similar(W.ŵ), P, W, V)
     â, b̂, ĉ        = similar(v̂), similar(v̂), similar(v̂)
     δâ, δb̂, δĉ     = similar(v̂), similar(v̂), similar(v̂)
@@ -169,7 +173,9 @@ function MultipleShooting.tangent!(P::KSPropagator, X::AbstractMatrix, V::Abstra
         v̂  .= E .* v̂ .+ f₁ .* Nv .+ 2 .* f₂ .* (Na .+ Nb) .+ f₃ .* Nc
     end
 
-    _ks_grid!(X, W, v̂)
+    # ---- back on the grid, the states from the first block ----
+    _ks_grid!(Y, W, v̂)
+    X .= view(Y, :, axes(X, 2))
 
     return _ks_grid!(V, W, δv̂)
 end

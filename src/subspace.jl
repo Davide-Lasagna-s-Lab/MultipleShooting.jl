@@ -12,7 +12,7 @@
 #     ψᵢ Vᵢ^(r-1) = Vᵢ₊₁^(r) Rᵢ^(r),   i = 1, …, m - 1,   S(s) ψ_m V_m^(r-1) = V₁^(r) R_m^(r),
 #
 # a QR factorisation by two passes of modified Gram–Schmidt, with Rᵢ^(r) upper triangular. The k′
-# directions of the m segments form one batch of m k′ states, which tangents! advances in one call
+# directions of the m segments form one batch of m k′ states, which tangent! advances in one call
 # along the shooting points, so that a step costs k′ integrations of the tangent equation over the
 # orbit, and one of the equation when the propagator shares it among the directions. On a fixed loop the distance of the leading k
 # invariant directions from the span of the whole basis falls by about e^{-(Λ_k - Λ_{k′+1}) τ} per
@@ -56,7 +56,7 @@
 #
 #     V = (v₁¹, …, v_m¹, v₁², …, v_m², …),
 #
-# which tangents! advances along the shooting points, so that a propagator on a GPU advances the
+# which tangent! advances along the shooting points, so that a propagator on a GPU advances the
 # m k′ states together, and may integrate the shooting points once for all the directions.
 # Gram–Schmidt runs across the k′ batches, state by state, in the order of the directions.
 
@@ -70,8 +70,7 @@ makes one subspace step, with the Galerkin blocks and the turn that come with it
 to `z` and makes steps there until the turn passes the test.
 
 # Arguments
-- `P`: the propagator, with `tangent!`, or its own `tangents!`, and `shift!` for relative periodic
-  orbits.
+- `P`: the propagator, with `tangent!`, and `shift!` for relative periodic orbits.
 - `z::MultiVector`: the point, kept, not copied.
 - `k′::Int`: the number of directions of each basis, at least 1, required.
 """
@@ -131,7 +130,7 @@ After it the new bases give the turn Zᵢ and its singular values, `S.σ[:, i]`,
 principal angles between the old span at point i and the new, in increasing order. The bases before
 the step are kept in `S.U`, and the end points of the segments, φ_τ(uᵢ), in `S.tmp`. The k′
 directions advance together, as one batch of m k′ states along the shooting points, by one call of
-[`tangents!`](@ref).
+[`tangent!`](@ref).
 
 # Arguments
 - `S::Subspace`: the subspace, changed.
@@ -157,7 +156,7 @@ function iterate!(S::Subspace)
     #      become the end points of the segments ----
     #      vᵢᵃ ← ψᵢ vᵢᵃ,   Xᵢ = φ_τ(uᵢ)
     copyto!(S.tmp, z.X)
-    tangents!(S.P, S.tmp, S.Vk′, period(z)/nsegments(z))
+    tangent!(S.P, S.tmp, S.Vk′, period(z)/nsegments(z))
 
     # ---- the step: each image back in its batch, at the point it reaches, the last shifted ----
     #      ψᵢ vᵢᵃ at point i + 1,   S(s) ψ_m v_mᵃ at point 1

@@ -10,7 +10,6 @@ import SparseArrays
 export propagate!,
        rhs!,
        tangent!,
-       tangents!,
        forced!,
        shift!,
        dshift!,

@@ -8,10 +8,8 @@
 #     dpropagate!(P, X, V, τ)  as propagate!, and V the derivative in τ of the  period
 #                              end points; by default f at the end points
 #     rhs!(P, F, X)            the time derivative f at every state of X       period, phase
-#     tangent!(P, X, V, τ)     advance the states of X, and those of V by      Jacobian
-#                              the tangent equation along them
-#     tangents!(P, X, V, τ)    as tangent!, for k′ blocks of V along the       subspace
-#                              states of X; by default along k′ copies of X
+#     tangent!(P, X, V, τ)     advance the states of X, and the k′ blocks of   Jacobian, subspace
+#                              V by the tangent equation along them
 #     shift!(P, X, s)          shift every state of X by the shifts s          relative orbits
 #     dshift!(P, G, X, j)      the generator of shift j at every state of X    relative orbits
 #     forced!(P, X, V, τ)      as tangent!, forced by ∂f/∂p                    sensitivity
@@ -19,8 +17,6 @@
 # shift! and dshift! are needed for relative periodic orbits only, and forced! for the sensitivity
 # to a parameter only. dpropagate! has a default, the right-hand side at the end points, the
 # derivative of the exact flow; a propagator gives its own for the derivative of its integrator.
-# tangents! has a default too, which integrates the states once for every block; a propagator gives
-# its own to integrate them once for all the blocks.
 # For relative periodic orbits the system must be equivariant: the shifts commute with the flow,
 # and f(S(s) x) = S(s) f(x).
 
@@ -87,34 +83,17 @@ function rhs! end
 """
     tangent!(P, X, V, τ) -> V
 
-Advance every state of the batch `X` by the time `τ`, and the state of the batch `V` with the
-same index by the tangent equation along it, both in place,
+Advance every state of the batch `X` by the time `τ`, and the perturbations of the batch `V` by
+the tangent equation along them, all in place. `V` holds k′ ≥ 1 blocks of perturbations one after
+the other, each like `X`, k′ = `nsegments(V) ÷ nsegments(X)`, and every block is advanced along
+the states of `X`, which are advanced once,
 
-    xᵢ ← φ_τ(xᵢ),   vᵢ ← ψᵢ vᵢ,   ψᵢ = ∂φ_τ/∂x(xᵢ),
+    xᵢ ← φ_τ(xᵢ),   vᵢᵃ ← ψᵢ vᵢᵃ,   ψᵢ = ∂φ_τ/∂x(xᵢ),   a = 1, …, k′,
 
-with ψᵢ vᵢ the solution at τ of v' = ∂f/∂x(x(t)) v from v(0) = vᵢ, along the trajectory x(t)
-from xᵢ: the tangent map of the integrator, for the Jacobian of its residual to be exact.
-
-# Arguments
-- `P`: the propagator.
-- `X`: a batch of states, overwritten with their images.
-- `V`: a batch of perturbations like `X`, overwritten with their images by the tangent maps.
-- `τ::Real`: the time.
-"""
-function tangent! end
-
-"""
-    tangents!(P, X, V, τ) -> V
-
-As [`tangent!`](@ref), for several perturbations of every state. The batch `V` holds k′ blocks of
-perturbations one after the other, each like `X`, and every block is advanced by the tangent
-equation along the states of `X`, which are advanced once, all in place,
-
-    xᵢ ← φ_τ(xᵢ),   vᵢᵃ ← ψᵢ vᵢᵃ,   a = 1, …, k′,
-
-as a subspace step needs for the k′ directions of every shooting point. The default integrates the
-states k′ times: it advances k′ copies of `X`, one beside each block, by `tangent!`. A propagator
-gives its own method to integrate the states once for all the blocks.
+with ψᵢ v the solution at τ of v' = ∂f/∂x(x(t)) v from v(0) = v, along the trajectory x(t) from
+xᵢ: the tangent map of the integrator, for the Jacobian of its residual to be exact. One block,
+a batch like `X`, for a product of the Jacobian; k′ for the k′ directions of every shooting point
+of a subspace step.
 
 # Arguments
 - `P`: the propagator.
@@ -123,18 +102,7 @@ gives its own method to integrate the states once for all the blocks.
   their images by the tangent maps.
 - `τ::Real`: the time.
 """
-function tangents!(P, X, V, τ::Real)
-    m   = nsegments(X)
-    Xk′ = _copies(X, nsegments(V) ÷ m)
-
-    # ---- every block along its own copy of the states ----
-    tangent!(P, Xk′, V, τ)
-
-    # ---- the end points, from the first copy ----
-    copyto!(X, _block(Xk′, 1, m))
-
-    return V
-end
+function tangent! end
 
 """
     shift!(P, X, s) -> X

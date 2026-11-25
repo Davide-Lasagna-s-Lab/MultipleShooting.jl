@@ -99,6 +99,17 @@ function rk4!(rhs!, lin!, X, V, τ, dt)
     return V
 end
 
+# the same for the columns X with k′ blocks of as many tangent vectors V, as tangent! takes them:
+# the states once beside each block, since the scheme pairs a state with a vector, and back from
+# the first block
+function rk4_blocks!(rhs!, lin!, X::AbstractMatrix, V::AbstractMatrix, τ, dt)
+    Xk′ = repeat(X, 1, size(V, 2) ÷ size(X, 2))
+    rk4!(rhs!, lin!, Xk′, V, τ, dt)
+    X .= view(Xk′, :, axes(X, 2))
+
+    return V
+end
+
 struct LorenzPropagator
     dt::Float64 # the largest time step
      ρ::Float64 # the parameter ρ
@@ -119,7 +130,7 @@ MultipleShooting.propagate!(P::LorenzPropagator, X::AbstractMatrix, τ::Real) =
     (rk4!(_rhs(P), X, τ, P.dt); X)
 
 MultipleShooting.tangent!(P::LorenzPropagator, X::AbstractMatrix, V::AbstractMatrix, τ::Real) =
-    (rk4!(_rhs(P), _lin(P), X, V, τ, P.dt); V)
+    rk4_blocks!(_rhs(P), _lin(P), X, V, τ, P.dt)
 
 MultipleShooting.forced!(P::LorenzPropagator, X::AbstractMatrix, V::AbstractMatrix, τ::Real) =
     (rk4!(_rhs(P), _forced(P), X, V, τ, P.dt); V)
@@ -133,8 +144,17 @@ MultipleShooting.rhs!(P::LorenzPropagator, F::AbstractMatrix, X::AbstractMatrix)
 MultipleShooting.propagate!(P::LorenzPropagator, X::Sliced, τ::Real) =
     (foreach(x -> rk4!(_rhs(P), x, τ, P.dt), X); X)
 
-MultipleShooting.tangent!(P::LorenzPropagator, X::Sliced, V::Sliced, τ::Real) =
-    (foreach((x, v) -> rk4!(_rhs(P), _lin(P), x, v, τ, P.dt), X, V); V)
+# the k′ blocks of V from the last to the first: each vector along a copy of its state, and those
+# of the first block along the states themselves, which they advance
+function MultipleShooting.tangent!(P::LorenzPropagator, X::Sliced, V::Sliced, τ::Real)
+    m = length(X)
+    for j in reverse(1:length(V))
+        x = j <= m ? X[j] : copy(X[mod1(j, m)])
+        rk4!(_rhs(P), _lin(P), x, V[j], τ, P.dt)
+    end
+
+    return V
+end
 
 MultipleShooting.dpropagate!(P::LorenzPropagator, X::Sliced, V::Sliced, τ::Real) =
     (foreach((x, v) -> (v .= 0; rk4!(_rhs(P), _stretched(P, τ), x, v, τ, P.dt)), X, V); V)

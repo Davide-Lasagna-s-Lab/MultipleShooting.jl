@@ -131,14 +131,3 @@ _tail(X) = states(X, nsegments(X):nsegments(X))
 
 # block a of a batch made of blocks of m states, (a - 1)m + 1 to am
 _block(X, a::Int, m::Int) = states(X, ((a - 1)*m + 1):(a*m))
-
-# k′ copies of the batch X, one after the other, as one batch of k′ blocks
-function _copies(X, k′::Int)
-    m   = nsegments(X)
-    Xk′ = similar_states(X, k′*m)
-    for a in 1:k′
-        copyto!(_block(Xk′, a, m), X)
-    end
-
-    return Xk′
-end

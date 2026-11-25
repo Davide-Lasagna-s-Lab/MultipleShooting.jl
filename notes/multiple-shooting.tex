@@ -257,7 +257,9 @@ defined in section~\ref{sec:sensitivity}, from $y_i(0) = v_i$. The functions \co
 \code{dshift!} are needed for relative periodic orbits only, and \code{forced!} for the
 sensitivity only. In \code{tangent!} the vector $v_i$ is
 advanced along the state $x_i$ with the same index, and the states are advanced with the vectors,
-since the tangent equation needs them. In practice $\varphi_\tau$ is a numerical scheme with time
+since the tangent equation needs them. The batch $V$ may hold several blocks of $m$ vectors, one
+after the other, as the directions of the subspace iteration of section~\ref{sec:subspace}: every
+block is advanced along the states of $X$, which are advanced once. In practice $\varphi_\tau$ is a numerical scheme with time
 steps, and $D\varphi_\tau$ either the derivative of the scheme or a discretisation of the tangent
 equation. In both test problems of section~\ref{sec:tests} it is the derivative of the scheme, so
 that the tangent map is exact for the discrete map.

@@ -208,12 +208,12 @@ end
     @test S.tmp ≈ propagate!(L, copy(ab.X), τ)
     @test all(S.E[:, :, i] ≈ Uᵢ(i % 4 + 1)'*reduce(hcat, [Wᵇ[:, i] for Wᵇ in W]) for i in 1:4)
 
-    # ---- tangents! advances the blocks of several directions along the states, by default as
-    #      tangent! does on each block alone, and leaves the end points in the states ----
+    # ---- tangent! advances the blocks of several directions along the states, each as on the
+    #      block alone, and leaves the end points in the states ----
     X = copy(ab.X)
     V = reduce(hcat, S.V)
     W = [tangent!(L, copy(ab.X), copy(Vᵃ), τ) for Vᵃ in S.V]
-    tangents!(L, X, V, τ)
+    tangent!(L, X, V, τ)
     @test X ≈ propagate!(L, copy(ab.X), τ)
     @test all(MultipleShooting._block(V, a, 4) ≈ W[a] for a in 1:2)
 
