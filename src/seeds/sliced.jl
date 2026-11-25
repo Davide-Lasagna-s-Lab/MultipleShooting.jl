@@ -1,8 +1,30 @@
 # The seeds as a vector of states: the methods of the functions that the package asks of the seeds
-# (interface.jl) for a Sliced, which holds every state in an array of its own, of any shape, for a
-# propagator that advances the states one at a time. Besides them it gives what the package takes
-# from Base for an array, `similar`, `copy`, `copyto!`, `randn!` and broadcasting, each on the
-# states and not on the vector that holds them.
+# (interface.jl) for a Sliced, which holds every state in an array of its own.
+#
+# What it is for. A propagator that advances the states one at a time, each with its own number of
+# steps or on its own task, or states that are not the slices of one array. The states may have
+# any shape. With states of one shape and a propagator that takes them all at once, an array, a
+# Batched, is simpler and faster.
+#
+# Why a type, and not a plain vector of arrays. On a vector of arrays Base acts on the vector, that
+# is on the references to the states, and not on the states:
+#
+#     similar(X)     gives a vector of references that are not set, with no state behind them
+#     copy(X)        gives another vector of the same states, so that a copy changes with X
+#     Y .= X         makes the states of Y those of X: in the residual, r .= z followed by the
+#                    propagation of r would overwrite the unknowns, and r - z would vanish
+#
+# and a vector of m states could not be told from the vector of the k′ directions that tangent!
+# takes. Sliced wraps the vector and gives each of these operations state by state, so that the
+# package uses it as it uses an array. The price is the wrapper, `Sliced(states)` going in and
+# `X[i]` or `X.states` coming out.
+#
+# Broadcasting is state by state: an expression assigned to a Sliced is evaluated once per state,
+# with every Sliced in it standing for its state i, and every vector of coefficients, one per
+# state as `dots` gives them, for its entry i.
+#
+# The inner product is that of two states, the Euclidean one unless `dot` is given. The seeds made
+# from a Sliced keep it.
 
 """
     Sliced(states; dot=nothing)

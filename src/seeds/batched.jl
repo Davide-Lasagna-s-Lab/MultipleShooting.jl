@@ -1,9 +1,25 @@
 # The seeds as an array of numbers: the methods of the functions that the package asks of the
-# seeds (interface.jl) for an array whose last dimension runs over the states, a Batched, so that a
-# state may be a vector, a field on a grid or an array on a GPU. A matrix of columns works as it
-# is, and so does an array type of the caller's, with `view` and `reverse!`. Seeds of another
-# kind, such as a vector of states advanced one at a time, have their own methods, written by the
-# caller.
+# seeds (interface.jl) for an array whose last dimension runs over the states, a Batched.
+#
+# What it is for. All the states sit in one array, so that the propagator advances them together,
+# in one sweep over the array: the columns of a matrix for states that are vectors, an
+# N_x × N_y × m array for fields on a grid, an array on a GPU. This is the kind to use whenever
+# the states have one shape.
+#
+# Why an alias, and not a type. On an array of numbers Base already does what the package needs:
+# `similar`, `copy`, `copyto!`, `randn!` and broadcasting act on the numbers of all the states at
+# once, and a view along the last dimension is a batch of fewer states that shares them. Nothing
+# has to be wrapped. A matrix is seeds as it is, and so is an array type of the caller's, as a
+# type of fields on a GPU: it has the methods of this file for free, and needs only what its array
+# type must give, `similar` for another size, `view` and `reverse!` along the last dimension. A
+# wrapper would have to be put on and taken off at every call, and would give all of this up.
+#
+# What it costs. Every array of numbers is taken for seeds, and the convention, the states along
+# the last dimension, is not checked: a matrix whose rows are the states gives wrong results, not
+# an error.
+#
+# The inner product is the Euclidean one. States with another product are an array type of the
+# caller's with its own method of `dots`.
 
 """
     Batched
