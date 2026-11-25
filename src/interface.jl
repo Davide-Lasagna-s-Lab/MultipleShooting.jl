@@ -17,8 +17,14 @@
 #     roll_backward!(X)       and back by one
 #     dots(X, Y)              the inner products of the states of X and Y, one per state
 #     coefficients(X, c)      the coefficients c, one per state, as dots gives them
+#     dot(X, Y)               the inner product of X and Y, the sum of dots over their states, of
+#                             LinearAlgebra, of which the package takes the real part
 #
-# and combines them, by `similar`, `copy`, `copyto!`, `randn!` and broadcasting, of Base.
+# and combines them, by `similar`, `copy`, `copyto!`, `randn!` and broadcasting, of Base. The
+# states that states, head and tail take are of the type of X, so that dot and dots on them are
+# the inner product of the states: for an array, the Euclidean one of Base, whose real part is
+# that of complex states; for a type of the caller's, its own, as the weighted one of a batch of
+# fields of BatchedKolmogorovFlow.jl.
 #
 # The dynamics. Objects of the caller's types, each with one task, which it does when called, on
 # all the states of an X at once, on threads or on a GPU, or one at a time. A search calls them as
@@ -130,11 +136,3 @@ The coefficients of the vector `c`, one per state of `X`, in the form of [`dots`
 `a .* X` is every state times its own.
 """
 function coefficients end
-
-
-# ---------------------------------------------------------------------------- #
-# internal: built on the interface of the seeds                                #
-# ---------------------------------------------------------------------------- #
-
-# the inner product of X and Y, the sum over their states
-_dot(X, Y) = sum(dots(X, Y))

@@ -93,8 +93,10 @@ Base.similar(z::ShootingVector) = ShootingVector(similar(z.X), similar(z.d))
 
 Base.copy(z::ShootingVector) = ShootingVector(copy(z.X), copy(z.d))
 
+# the inner product of the seeds, of their type, the real part for an array of complex states,
+# and the Euclidean one of the scalars
 LinearAlgebra.dot(z::ShootingVector, w::ShootingVector) =
-    _dot(z.X, w.X) + LinearAlgebra.dot(z.d, w.d)
+    real(LinearAlgebra.dot(z.X, w.X)) + LinearAlgebra.dot(z.d, w.d)
 
 LinearAlgebra.norm(z::ShootingVector) = sqrt(LinearAlgebra.dot(z, z))
 

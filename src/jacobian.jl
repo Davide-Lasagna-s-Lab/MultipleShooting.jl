@@ -182,11 +182,14 @@ function LinearAlgebra.mul!(out::ShootingVector, J::Jacobian, v::ShootingVector)
     roll_forward!(out.X)
     out .= out .- v
 
-    # ---- the phase conditions, in time and in space ----
+    # ---- the phase conditions, in time and in space: dot of LinearAlgebra on the first states,
+    #      which head takes as states of the type of the seeds, so that it is the inner product of
+    #      the states, weighted when the type of the seeds has its own; the real part, for an
+    #      array of complex states ----
     #      d₁ = ⟨f(u₁), v₁⟩,   d₁₊ⱼ = ⟨gⱼ(u₁), v₁⟩
-    out.d[1] = _dot(head(J.f), head(v.X))
+    out.d[1] = real(LinearAlgebra.dot(head(J.f), head(v.X)))
     for j in 1:nshifts(J.z)
-        out.d[1 + j] = _dot(J.g₁[j], head(v.X))
+        out.d[1 + j] = real(LinearAlgebra.dot(J.g₁[j], head(v.X)))
     end
 
     return out

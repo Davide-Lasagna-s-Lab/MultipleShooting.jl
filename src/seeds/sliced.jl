@@ -69,8 +69,10 @@ similar_states(X::Sliced, b::Int) = Sliced([similar(first(X.states)) for _ in 1:
 roll_forward!(X::Sliced)  = (circshift!(X.states,  1); X)
 roll_backward!(X::Sliced) = (circshift!(X.states, -1); X)
 
-# a vector, one product per state
+# a vector, one product per state, and their sum, the inner product of LinearAlgebra
 dots(X::Sliced, Y::Sliced) = map(X.dot, X.states, Y.states)
+
+LinearAlgebra.dot(X::Sliced, Y::Sliced) = sum(dots(X, Y))
 
 coefficients(X::Sliced, c::AbstractVector) = collect(Float64, c)
 

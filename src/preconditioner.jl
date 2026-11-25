@@ -224,9 +224,9 @@ function _assemble!(M::Preconditioner)
     #      alone are single numbers, summed on the device ----
     #      Uᵢᵀ Fᵢ at every seed, f₁ᵀ U₁, U₁ᵀ Gⱼ and g₁ⱼᵀ U₁ at the first seed
     pf = [vec(Array(dots(S.U[k₁], F))) for k₁ in 1:k′]
-    ff = [_dot(f₁, head(S.U[k₁])) for k₁ in 1:k′]
-    pg = [_dot(head(S.U[k₁]), G[j]) for k₁ in 1:k′, j in 1:ns]
-    gg = [_dot(g₁[j], head(S.U[k₁])) for k₁ in 1:k′, j in 1:ns]
+    ff = [real(LinearAlgebra.dot(f₁, head(S.U[k₁]))) for k₁ in 1:k′]
+    pg = [real(LinearAlgebra.dot(head(S.U[k₁]), G[j])) for k₁ in 1:k′, j in 1:ns]
+    gg = [real(LinearAlgebra.dot(g₁[j], head(S.U[k₁]))) for k₁ in 1:k′, j in 1:ns]
 
     # ---- the entries ----
     Is = Int[]
