@@ -347,12 +347,38 @@ end
 # per point, left in that form, since each only multiplies U[a], point by point. Z is stored as V
 # is, Z[b] the direction b of the turn at every point.
 #
-# The singular values are those of the triangular factor of a QR factorisation Zᵢ = Qᵢ Tᵢ by one
-# pass of modified Gram–Schmidt, which leaves Qᵢ in Z. That factor is backward stable however far
-# Qᵢ is from orthogonal, so that the small sines are resolved down to eps times the largest, where
-# the eigenvalues of ZᵢᵀZᵢ would square them and lose them below √eps times the largest. T is
-# k′ × k′ × m on the host, and the singular values of T[:, :, i] are computed there, point by
-# point. The sines are capped at 1, against rounding.
+# The singular values of Zᵢ are not computed on Zᵢ itself, for three reasons. Zᵢ is n × k′, with n
+# the size of a state, a whole field, possibly on a GPU. It is not one matrix: its columns are
+# state i of each of the k′ elements of Z. And its singular values are meant in the inner product
+# of the seeds, dots, which may have weights, where a numerical SVD takes the Euclidean one. So Zᵢ
+# is factorised first, in that inner product,
+#
+#     Zᵢ = Qᵢ Tᵢ,   Qᵢ with orthonormal columns in dots,   Tᵢ upper triangular, k′ × k′,
+#
+# by one pass of modified Gram–Schmidt, at all the points at once, which leaves Qᵢ in Z and
+# returns T, k′ × k′ × m on the host. Qᵢ being orthonormal, Zᵢ and Tᵢ have the same singular
+# values,
+#
+#     σⱼ(Zᵢ) = σⱼ(Tᵢ),
+#
+# and those of the small matrix T[:, :, i] are computed on the host, point by point, at no cost.
+#
+# What this takes for granted:
+#
+#   - one pass is enough. It leaves Qᵢ orthonormal only to about eps times the condition number
+#     of Zᵢ, which is large when some directions have settled and others have not, but the
+#     triangular factor is backward stable however far Qᵢ is from orthonormal, and only the
+#     factor is used;
+#
+#   - the small sines survive. The factor resolves them down to eps times the largest. The other
+#     cheap way, the eigenvalues of the k′ × k′ matrix ZᵢᵀZᵢ, from dots alone, would square them
+#     and lose them below √eps times the largest, about 1e-8, above the tolerances of the test;
+#
+#   - a direction that does not turn at a point gives a zero column of Zᵢ there, which
+#     Gram–Schmidt leaves at zero, with a zero on the diagonal of Tᵢ: a zero sine, and no
+#     division by zero.
+#
+# The sines are capped at 1, against rounding.
 function _turn!(Z::Vector, σ::Matrix{Float64}, U::Vector, V::Vector)
     k′ = length(V)
     m  = size(σ, 2)
