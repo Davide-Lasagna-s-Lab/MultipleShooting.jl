@@ -46,19 +46,20 @@
 # vectors, may still be turning: the turn falls at the rate Λ_k - Λ_{k′+1}, with no need of a gap
 # after the kth exponent.
 #
-# The layout. The bases are k′ batches like the shooting points, one per direction: V[a] holds
-# direction a at every point,
+# The layout. The bases are one batch of k′ blocks of m states, block a the direction a at every
+# point,
 #
-#     V[1] = (v₁¹, v₂¹, …, v_m¹),   …,   V[k′] = (v₁ᵏ′, v₂ᵏ′, …, v_mᵏ′),
-#
-# so that each is shifted and moved forward as a vector of the Jacobian is. A step packs them into one
-# batch of k′ blocks of m states,
-#
-#     V = (v₁¹, …, v_m¹, v₁², …, v_m², …),
+#     (v₁¹, …, v_m¹, v₁², …, v_m², …, v₁ᵏ′, …, v_mᵏ′),
 #
 # which tangent! advances along the shooting points, so that a propagator on a GPU advances the
-# m k′ states together, and may integrate the shooting points once for all the directions.
-# Gram–Schmidt runs across the k′ batches, state by state, in the order of the directions.
+# m k′ states together, and integrates the shooting points once for all the directions. V[a] is
+# block a, a view of the batch and not a copy,
+#
+#     V[a] = (v₁ᵃ, v₂ᵃ, …, v_mᵃ),
+#
+# a batch like the shooting points, shifted and moved forward as a vector of the Jacobian is.
+# Gram–Schmidt runs across the k′ blocks, state by state, in the order of the directions. The
+# bases before a step and the turn, U and Z, are k′ batches of their own.
 
 """
     Subspace(P, z; k′)
@@ -74,16 +75,16 @@ to `z` and makes steps there until the turn passes the test.
 - `z::MultiVector`: the point, kept, not copied.
 - `k′::Int`: the number of directions of each basis, at least 1, required.
 """
-mutable struct Subspace{PT, ZT<:MultiVector, A, B}
+mutable struct Subspace{PT, ZT<:MultiVector, A, B, C}
       P::PT                 # the propagator
       z::ZT                 # the point, not a copy: its seeds, period and shifts give the tangent maps
-      V::Vector{A}          # the bases after the last step, Vᵢ^(r): V[a] holds direction a
+    Vk′::B                  # the bases after the last step, Vᵢ^(r), one batch of k′ blocks of m states
+      V::Vector{C}          # its blocks, views: V[a] holds direction a at every point
       U::Vector{A}          # the bases before it, Vᵢ^(r-1), which the preconditioner uses with E
       E::Array{Float64, 3}  # their Galerkin blocks Eᵢ = E[:, :, i], k′ × k′ × m, Inf before any step
       Z::Vector{A}          # the turn of the last step, Zᵢ, then the orthonormal factor of its QR
       σ::Matrix{Float64}    # sin ϑⱼ,ᵢ = σⱼ(Zᵢ), increasing in j, k′ × m, Inf before any step
     tmp::A                  # work batch: the shooting points, then the end points of the segments
-    Vk′::B                  # the packed batch of the bases, k′ blocks of m states, block a direction a
   steps::Int                # subspace steps of the last update!
 
     function Subspace(P, z::MultiVector; k′::Int)
@@ -93,24 +94,22 @@ mutable struct Subspace{PT, ZT<:MultiVector, A, B}
         k′ >= 1 ||
             throw(ArgumentError("k′ must be at least 1"))
 
-        # ---- random orthonormal bases ----
-        X = z.X
-        V = [Random.randn!(similar(X)) for _ in 1:k′]
+        # ---- random orthonormal bases: one batch of k′ blocks of m states, and its blocks ----
+        X   = z.X
+        Vk′ = Random.randn!(similar_states(X, k′*m))
+        V   = [_block(Vk′, a, m) for a in 1:k′]
         _orthonormalise!(V)
 
-        # ---- the packed batch of a step, m k′ states ----
-        Vk′ = similar_states(X, k′*m)
-
-        return new{typeof(P), typeof(z), typeof(X), typeof(Vk′)}(P,
-                                                                 z,
-                                                                 V,
-                                                                 similar.(V),
-                                                                 fill(Inf, k′, k′, m),
-                                                                 similar.(V),
-                                                                 fill(Inf, k′, m),
-                                                                 similar(X),
-                                                                 Vk′,
-                                                                 0)
+        return new{typeof(P), typeof(z), typeof(X), typeof(Vk′), eltype(V)}(P,
+                                                                            z,
+                                                                            Vk′,
+                                                                            V,
+                                                                            [similar(X) for _ in 1:k′],
+                                                                            fill(Inf, k′, k′, m),
+                                                                            [similar(X) for _ in 1:k′],
+                                                                            fill(Inf, k′, m),
+                                                                            similar(X),
+                                                                            0)
     end
 end
 
@@ -138,7 +137,6 @@ directions advance together, as one batch of m k′ states along the shooting po
 function iterate!(S::Subspace)
     z  = S.z
     k′ = length(S.V)
-    m  = nsegments(z)
 
     # ---- the bases before the step ----
     #      Vᵢ^(r-1), kept in U
@@ -146,22 +144,16 @@ function iterate!(S::Subspace)
         copyto!(S.U[a], S.V[a])
     end
 
-    # ---- the step: the k′ directions packed into one batch, block a along the points ----
-    #      V = (v₁¹, …, v_m¹, v₁², …, v_m², …)
-    for a in 1:k′
-        copyto!(_block(S.Vk′, a, m), S.V[a])
-    end
-
-    # ---- the step: the batch advanced over the segments along the shooting points, which
-    #      become the end points of the segments ----
+    # ---- the step: the batch of the k′ directions advanced over the segments along the shooting
+    #      points, which become the end points of the segments ----
     #      vᵢᵃ ← ψᵢ vᵢᵃ,   Xᵢ = φ_τ(uᵢ)
     copyto!(S.tmp, z.X)
     tangent!(S.P, S.tmp, S.Vk′, period(z)/nsegments(z))
 
-    # ---- the step: each image back in its batch, at the point it reaches, the last shifted ----
+    # ---- the step: each image at the point it reaches, the last shifted, block by block and in
+    #      place ----
     #      ψᵢ vᵢᵃ at point i + 1,   S(s) ψ_m v_mᵃ at point 1
     for a in 1:k′
-        copyto!(S.V[a], _block(S.Vk′, a, m))
         nshifts(z) > 0 && shift!(S.P, _tail(S.V[a]), shifts(z))
         shift_forward!(S.V[a])
     end

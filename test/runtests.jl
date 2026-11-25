@@ -196,15 +196,18 @@ end
     @test all(reduce(hcat, Sₛ.V[a]) ≈ S.V[a] for a in 1:2)
     @test Sₛ.E ≈ S.E
 
-    # ---- the packed step advances each direction as tangent! does on it alone, leaves the end
-    #      points of the segments, and gives the Galerkin blocks of the bases before it,
+    # ---- the bases are the blocks of one batch, with no copy; a step leaves the end points of
+    #      the segments, bases that span the images that tangent! gives of each direction alone,
+    #      at the point they reach, and the Galerkin blocks of the bases before it,
     #      Eᵢ = Uᵢ₊₁ᵀ ψᵢ Uᵢ ----
     τ = period(ab)/4
     W = map(S.V) do Vᵃ
         tangent!(L, copy(ab.X), copy(Vᵃ), τ)
     end
+    Wᵢ(i) = reduce(hcat, [Wᵇ[:, i] for Wᵇ in W])
     iterate!(S)
-    @test all(MultipleShooting._block(S.Vk′, a, 4) ≈ W[a] for a in 1:2)
+    @test all(parent(S.V[a]) === S.Vk′ for a in 1:2)
+    @test all(Vᵢ(i % 4 + 1)*(Vᵢ(i % 4 + 1)'*Wᵢ(i)) ≈ Wᵢ(i) for i in 1:4)
     @test S.tmp ≈ propagate!(L, copy(ab.X), τ)
     @test all(S.E[:, :, i] ≈ Uᵢ(i % 4 + 1)'*reduce(hcat, [Wᵇ[:, i] for Wᵇ in W]) for i in 1:4)
 
