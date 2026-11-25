@@ -84,9 +84,9 @@ function rhs! end
     tangent!(P, X, V, τ) -> V
 
 Advance every state of the batch `X` by the time `τ`, and the perturbations of the batch `V` by
-the tangent equation along them, all in place. `V` holds k′ ≥ 1 blocks of perturbations one after
-the other, each like `X`, k′ = `nsegments(V) ÷ nsegments(X)`, and every block is advanced along
-the states of `X`, which are advanced once,
+the tangent equation along them, all in place. `V` holds k′ ≥ 1 blocks of perturbations, each
+like `X`, as [`similar_blocks`](@ref) makes, k′ = `nsegments(V) ÷ nsegments(X)`, and every block
+is advanced along the states of `X`, which are advanced once,
 
     xᵢ ← φ_τ(xᵢ),   vᵢᵃ ← ψᵢ vᵢᵃ,   ψᵢ = ∂φ_τ/∂x(xᵢ),   a = 1, …, k′,
 
@@ -98,8 +98,8 @@ of a subspace step.
 # Arguments
 - `P`: the propagator.
 - `X`: a batch of m states, overwritten with their images.
-- `V`: a batch of k′ m perturbations, block a in the places (a - 1)m + 1 to am, overwritten with
-  their images by the tangent maps.
+- `V`: a batch of k′ blocks of m perturbations, block a what [`block`](@ref) gives, overwritten
+  with their images by the tangent maps.
 - `τ::Real`: the time.
 """
 function tangent! end

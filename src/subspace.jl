@@ -46,14 +46,12 @@
 # vectors, may still be turning: the turn falls at the rate Λ_k - Λ_{k′+1}, with no need of a gap
 # after the kth exponent.
 #
-# The layout. The bases are one batch of k′ blocks of m states, block a the direction a at every
-# point,
-#
-#     (v₁¹, …, v_m¹, v₁², …, v_m², …, v₁ᵏ′, …, v_mᵏ′),
-#
-# which tangent! advances along the shooting points, so that a propagator on a GPU advances the
-# m k′ states together, and integrates the shooting points once for all the directions. V[a] is
-# block a, a view of the batch and not a copy,
+# The layout. The bases are one batch of k′ blocks, each like the shooting points, block a the
+# direction a at every point, made by similar_blocks: how the blocks lie in it is up to the type
+# of the batch, one after the other for an array (seeds.jl). tangent! advances it along the
+# shooting points, so that a propagator on a GPU advances the m k′ states together, and integrates
+# the shooting points once for all the directions. V[a] is block a, from block, a view of the
+# batch and not a copy,
 #
 #     V[a] = (v₁ᵃ, v₂ᵃ, …, v_mᵃ),
 #
@@ -78,7 +76,7 @@ to `z` and makes steps there until the turn passes the test.
 mutable struct Subspace{PT, ZT<:MultiVector, A, B, C}
       P::PT                 # the propagator
       z::ZT                 # the point, not a copy: its seeds, period and shifts give the tangent maps
-    Vk′::B                  # the bases after the last step, Vᵢ^(r), one batch of k′ blocks of m states
+    Vk′::B                  # the bases after the last step, Vᵢ^(r), one batch of k′ blocks
       V::Vector{C}          # its blocks, views: V[a] holds direction a at every point
       U::Vector{A}          # the bases before it, Vᵢ^(r-1), which the preconditioner uses with E
       E::Array{Float64, 3}  # their Galerkin blocks Eᵢ = E[:, :, i], k′ × k′ × m, Inf before any step
@@ -96,8 +94,8 @@ mutable struct Subspace{PT, ZT<:MultiVector, A, B, C}
 
         # ---- random orthonormal bases: one batch of k′ blocks of m states, and its blocks ----
         X   = z.X
-        Vk′ = Random.randn!(similar_states(X, k′*m))
-        V   = [_block(Vk′, a, m) for a in 1:k′]
+        Vk′ = Random.randn!(similar_blocks(X, k′))
+        V   = [block(Vk′, a, m) for a in 1:k′]
         _orthonormalise!(V)
 
         return new{typeof(P), typeof(z), typeof(X), typeof(Vk′), eltype(V)}(P,

@@ -218,7 +218,7 @@ end
     W = [tangent!(L, copy(ab.X), copy(Vᵃ), τ) for Vᵃ in S.V]
     tangent!(L, X, V, τ)
     @test X ≈ propagate!(L, copy(ab.X), τ)
-    @test all(MultipleShooting._block(V, a, 4) ≈ W[a] for a in 1:2)
+    @test all(block(V, a, 4) ≈ W[a] for a in 1:2)
 
     # ---- on bases that have settled, the update passes the test after one step ----
     MultipleShooting.update!(S, ab; tol=1e-12)
