@@ -25,7 +25,7 @@ export propagate!,
        coefficients,
        Batched,
        Sliced,
-       MultiVector,
+       ShootingVector,
        period,
        nshifts,
        shift,
@@ -46,7 +46,7 @@ export propagate!,
 include("interface.jl")
 include("batched.jl")
 include("sliced.jl")
-include("multivector.jl")
+include("shootingvector.jl")
 include("residual.jl")
 include("jacobian.jl")
 include("jacobian_fd.jl")

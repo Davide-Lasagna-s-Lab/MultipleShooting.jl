@@ -29,7 +29,7 @@ include(joinpath(TEST, "data", "ks22.jl"))
 
 # ---- Lorenz, from the guess of the tests ----
 Lz     = LorenzPropagator(1e-3, 28.0)
-lguess = MultiVector([-4.3916429753   4.5595009656   3.6883670592  -3.8671374687;
+lguess = ShootingVector([-4.3916429753   4.5595009656   3.6883670592  -3.8671374687;
                        2.1325664921   7.9944849552  -1.9178392035  -6.9073223838;
                       30.6127436095  12.6485708665  29.3130502493  11.6370396562], [1.57])
 ab     = copy(lguess)

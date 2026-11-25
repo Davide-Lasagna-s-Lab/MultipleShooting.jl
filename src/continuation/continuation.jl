@@ -31,7 +31,7 @@ length of a step is that of the change of `(z, p)`.
 
 # Arguments
 - `family`: a function `p -> P`, the propagator at the parameter `p`, of one type for all `p`.
-- `z::MultiVector`: an orbit of `family(p)`, overwritten with the last point.
+- `z::ShootingVector`: an orbit of `family(p)`, overwritten with the last point.
 - `p::Real`: its parameter.
 - `sense::Int=1`: `1` for a parameter that grows at the start, `-1` for one that shrinks.
 - `target=nothing`: the parameter at which the continuation ends, or `nothing` to end at the
@@ -54,13 +54,13 @@ A named tuple with
 - `path`: the points, as the vectors `p`, the parameter, `period`, and `slope`, the part of the
   unit tangent in the parameter.
 """
-function continuation!(family, z::MultiVector, p::Real;    sense::Int=1,
-                                                          target=nothing,
-                                                            step::Real=0.05,
-                                                         longest::Real=2.0,
-                                                        shortest::Real=1e-4,
-                                                          points::Int=100,
-                                                        kw...)
+function continuation!(family, z::ShootingVector, p::Real;    sense::Int=1,
+                                                             target=nothing,
+                                                               step::Real=0.05,
+                                                            longest::Real=2.0,
+                                                           shortest::Real=1e-4,
+                                                             points::Int=100,
+                                                           kw...)
     # ---- input checks ----
     sense in (1, -1) ||
         throw(ArgumentError("sense must be 1 or -1"))

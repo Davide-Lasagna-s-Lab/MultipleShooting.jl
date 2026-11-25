@@ -3,7 +3,7 @@
 # closest return up to a shift with a period between 15.8 and 16.8 and a shift of size between
 # 2 and 4, found once offline: a distance of 2.97 at T = 16.8 and s = -2.92. The seeds are turned
 # into the Fourier coefficients of the modes kept by KSPropagator(), k = 1, …, 21.
-const ks22_guess = MultiVector((rfft([
+const ks22_guess = ShootingVector((rfft([
        0.4117151887    0.1928492014    0.5151292395    1.3806633107;
        0.6137658100    0.1916519380    0.2335766788    0.6959383804;
        0.8526243083    0.2053109655   -0.0659228696   -0.0739167081;

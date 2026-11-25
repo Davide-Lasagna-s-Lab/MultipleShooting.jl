@@ -70,7 +70,7 @@ with E is checked: a relative residual above 1e-6 is an error, the sign of an E 
 # Arguments
 - `P`: the propagator, with `tangent!` and `rhs!`, and `shift!` and `dshift!` for relative
   periodic orbits.
-- `z::MultiVector`: the point, kept, not copied.
+- `z::ShootingVector`: the point, kept, not copied.
 - `k′::Int`: the number of directions per seed, required.
 - `k::Int=k′`: the number of leading directions that the test checks, from 1 to `k′`.
 - `tol::Real=1e-8`: the tolerance ε_sub on the sine of the turn of the bases, as
@@ -95,13 +95,13 @@ mutable struct Preconditioner{ST<:Subspace}
        every::Int                                        # Newton steps between updates, 0 for the first only
      updated::Vector{Bool}                               # whether each Newton step updated it
 
-    function Preconditioner(P, z::MultiVector; k′::Int,
-                                               k::Int=k′,
-                                               tol::Real=1e-8,
-                                               maxsteps::Int=100,
-                                               sweeps::Int=0,
-                                               cap::Symbol=:error,
-                                               every::Int=1)
+    function Preconditioner(P, z::ShootingVector; k′::Int,
+                                                  k::Int=k′,
+                                                  tol::Real=1e-8,
+                                                  maxsteps::Int=100,
+                                                  sweeps::Int=0,
+                                                  cap::Symbol=:error,
+                                                  every::Int=1)
         # ---- input checks ----
         1 <= k <= k′ ||
             throw(ArgumentError("k must be between 1 and k′"))
@@ -140,9 +140,9 @@ updates, as `every` sets them, nothing changes and nothing is integrated.
 
 # Arguments
 - `M::Preconditioner`: the preconditioner, changed.
-- `z::MultiVector`: the new point, kept, not copied.
+- `z::ShootingVector`: the new point, kept, not copied.
 """
-function NKRoots.update!(M::Preconditioner, z::MultiVector)
+function NKRoots.update!(M::Preconditioner, z::ShootingVector)
     # ---- between two updates, the bases and E of the last one ----
     step  = length(M.updated) + 1
     fresh = step == 1 || (M.every > 0 && (step - 1) % M.every == 0)
@@ -249,7 +249,7 @@ end
 
 # the coefficients Wᵀ v: the coordinates of every seed in its basis, direction by direction, then
 # the period and the shifts
-function _restrict(M::Preconditioner, v::MultiVector)
+function _restrict(M::Preconditioner, v::ShootingVector)
     k′ = length(M.S.U)
     c  = [vec(Array(dots(M.S.U[a], v.X))) for a in 1:k′]
 
@@ -271,11 +271,11 @@ computed from the coefficients g = Wᵀ v and y = E⁻¹ g as
 The solve is checked: a relative residual ‖E y - g‖/‖g‖ above 1e-6 is an error.
 
 # Arguments
-- `out::MultiVector`: overwritten with `M⁻¹ v`.
+- `out::ShootingVector`: overwritten with `M⁻¹ v`.
 - `M::Preconditioner`: the preconditioner.
-- `v::MultiVector`: the vector, not changed.
+- `v::ShootingVector`: the vector, not changed.
 """
-function LinearAlgebra.ldiv!(out::MultiVector, M::Preconditioner, v::MultiVector)
+function LinearAlgebra.ldiv!(out::ShootingVector, M::Preconditioner, v::ShootingVector)
     S  = M.S
     k′ = length(S.U)
     m  = nsegments(v)
@@ -312,7 +312,7 @@ the vectors and the span of `W`, so that the lengths of `Θ` are not squared.
 
 # Arguments
 - `M::Preconditioner`: the preconditioner.
-- `Q`: the orthonormal vectors `qⱼ`, a vector of [`MultiVector`](@ref)s, the basis of the
+- `Q`: the orthonormal vectors `qⱼ`, a vector of [`ShootingVector`](@ref)s, the basis of the
   Krylov space.
 """
 function NKRoots.gram(M::Preconditioner, Q)

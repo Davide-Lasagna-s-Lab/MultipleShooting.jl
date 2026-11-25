@@ -55,4 +55,4 @@ MultipleShooting.forced!(P::CyclePropagator, X::Batched, V::Batched, τ::Real) =
 MultipleShooting.rhs!(P::CyclePropagator, F::Batched, X::Batched) = cycle_rhs!(F, X, P.μ)
 
 # the circle of squared radius r² as four seeds a quarter of a turn apart, with the period 2π
-circle(r²) = MultiVector(sqrt(r²) .* [1.0 0.0 -1.0 0.0; 0.0 1.0 0.0 -1.0], [2π])
+circle(r²) = ShootingVector(sqrt(r²) .* [1.0 0.0 -1.0 0.0; 0.0 1.0 0.0 -1.0], [2π])

@@ -68,10 +68,10 @@ to `z` and makes steps there until the turn passes the test.
 
 # Arguments
 - `P`: the propagator, with `tangent!`, and `shift!` for relative periodic orbits.
-- `z::MultiVector`: the point, kept, not copied.
+- `z::ShootingVector`: the point, kept, not copied.
 - `k′::Int`: the number of directions of each basis, at least 1, required.
 """
-mutable struct Subspace{PT, ZT<:MultiVector, A}
+mutable struct Subspace{PT, ZT<:ShootingVector, A}
       P::PT                 # the propagator
       z::ZT                 # the point, not a copy: its seeds, period and shifts give the tangent maps
       V::Vector{A}          # the bases after the last step, Vᵢ^(r): V[a] holds direction a
@@ -82,7 +82,7 @@ mutable struct Subspace{PT, ZT<:MultiVector, A}
     tmp::A                  # work batch: the shooting points, then the end points of the segments
   steps::Int                # subspace steps of the last update!
 
-    function Subspace(P, z::MultiVector; k′::Int)
+    function Subspace(P, z::ShootingVector; k′::Int)
         m = nsegments(z)
 
         # ---- input checks ----
@@ -223,7 +223,7 @@ steps, `maxsteps`, two of the ways of [`Preconditioner`](@ref).
 
 # Arguments
 - `S::Subspace`: the subspace, changed; `S.steps` holds the number of steps made.
-- `z::MultiVector`: the new point, kept, not copied.
+- `z::ShootingVector`: the new point, kept, not copied.
 - `tol::Real`: the tolerance ε_sub on the sine of the turn, as [`maxturn`](@ref).
 - `k::Int=k′`: the number of leading directions that the test checks, from 1 to the number `k′`
   of directions of each basis.
@@ -232,10 +232,10 @@ steps, `maxsteps`, two of the ways of [`Preconditioner`](@ref).
   error and `:keep` keeps them as they are. With `tol = 0` and `:keep` the update makes exactly
   `maxsteps` steps.
 """
-function update!(S::Subspace, z::MultiVector; tol::Real,
-                                              k::Int=length(S.V),
-                                              maxsteps::Int=100,
-                                              cap::Symbol=:error)
+function update!(S::Subspace, z::ShootingVector; tol::Real,
+                                                 k::Int=length(S.V),
+                                                 maxsteps::Int=100,
+                                                 cap::Symbol=:error)
     # ---- input checks ----
     1 <= k <= length(S.V) ||
         throw(ArgumentError("k must be between 1 and k′"))

@@ -37,8 +37,8 @@ not within `bounds` the residual is infinite, with no integration.
   guess of period `T`. The default refuses the periods that are not positive.
 
 Called as `F(r, z)`, with
-- `r::MultiVector`: overwritten with the residual;
-- `z::MultiVector`: the unknowns, not changed.
+- `r::ShootingVector`: overwritten with the residual;
+- `z::ShootingVector`: the unknowns, not changed.
 """
 struct Residual{PT}
          P::PT                      # the propagator
@@ -47,7 +47,7 @@ struct Residual{PT}
     Residual(P; bounds::NTuple{2, Real}=(0.0, Inf)) = new{typeof(P)}(P, bounds)
 end
 
-function (F::Residual)(r::MultiVector, z::MultiVector)
+function (F::Residual)(r::ShootingVector, z::ShootingVector)
     # ---- a period out of bounds: an infinite residual ----
     F.bounds[1] < period(z) < F.bounds[2] || return r .= Inf
 

@@ -1,7 +1,7 @@
 # GMRES, on its own: the solution of A x = b from x = 0, for a linear operator applied in place,
 # A!(out, v) -> out, on any vector that broadcasts and has dot, norm and similar, such as a
-# MultiVector. Each iteration adds one vector to the orthonormal basis Q of the Krylov space, by an
-# Arnoldi step,
+# ShootingVector. Each iteration adds one vector to the orthonormal basis Q of the Krylov space,
+# by an Arnoldi step,
 #
 #     A Qₙ = Qₙ₊₁ Hₙ,   Hₙ upper Hessenberg, (n + 1) × n,
 #
@@ -27,7 +27,7 @@ every iteration, by [`ritz_values`](@ref).
 # Arguments
 - `A!`: the linear operator, applied in place as `A!(out, v) -> out`.
 - `b`: the right-hand side, not changed, any vector that broadcasts and has `dot`, `norm` and
-  `similar`, such as a [`MultiVector`](@ref).
+  `similar`, such as a [`ShootingVector`](@ref).
 - `tol::Real=1e-8`: the relative residual at which it stops.
 - `maxiter::Int=100`: the most iterations.
 

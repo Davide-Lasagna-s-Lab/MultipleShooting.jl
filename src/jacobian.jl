@@ -43,9 +43,9 @@ product, and the scalar rows the phase conditions. Building it integrates the se
 # Arguments
 - `P`: the propagator, with `propagate!`, `tangent!` and `rhs!`, `shift!` and `dshift!` for
   relative periodic orbits, and its own `dpropagate!` for the derivative of its integrator.
-- `z::MultiVector`: the point, kept, not copied; `update!(J, z)` moves it to another.
+- `z::ShootingVector`: the point, kept, not copied; `update!(J, z)` moves it to another.
 """
-mutable struct Jacobian{PT, V<:MultiVector, A, H}
+mutable struct Jacobian{PT, V<:ShootingVector, A, H}
          P::PT        # the propagator
          z::V         # the point, not a copy
        tmp::A         # work batch: the end points, then the seeds advanced with the vectors
@@ -55,7 +55,7 @@ mutable struct Jacobian{PT, V<:MultiVector, A, H}
          f::H         # f at the first seed, a batch of one state
          g::Vector{H} # the generators at the first seed, one per shift
 
-    function Jacobian(P, z::MultiVector)
+    function Jacobian(P, z::ShootingVector)
         # ---- the storage, filled by update! ----
         tmp = similar(z.X)
         F = similar(z.X)
@@ -84,10 +84,10 @@ one `nkroot!` of NKRoots.jl calls.
 
 # Arguments
 - `J::Jacobian`: the Jacobian, changed.
-- `z::MultiVector`: the new point, kept, not copied.
-- `r::MultiVector`: the residual at `z`, not used.
+- `z::ShootingVector`: the new point, kept, not copied.
+- `r::ShootingVector`: the residual at `z`, not used.
 """
-function NKRoots.update!(J::Jacobian, z::MultiVector)
+function NKRoots.update!(J::Jacobian, z::ShootingVector)
     m   = nsegments(z)
     τ   = period(z)/m
     J.z = z
@@ -116,9 +116,9 @@ function NKRoots.update!(J::Jacobian, z::MultiVector)
 end
 
 # as nkroot! of NKRoots.jl calls it, at the start of every Newton iteration
-NKRoots.update!(J::Jacobian, z::MultiVector, r::MultiVector) = NKRoots.update!(J, z)
+NKRoots.update!(J::Jacobian, z::ShootingVector, r::ShootingVector) = NKRoots.update!(J, z)
 
-function LinearAlgebra.mul!(out::MultiVector, J::Jacobian, v::MultiVector)
+function LinearAlgebra.mul!(out::ShootingVector, J::Jacobian, v::ShootingVector)
     τ  = period(J.z)/nsegments(J.z)
     δT = period(v)
 
@@ -157,4 +157,4 @@ function LinearAlgebra.mul!(out::MultiVector, J::Jacobian, v::MultiVector)
     return out
 end
 
-Base.:*(J::Jacobian, v::MultiVector) = LinearAlgebra.mul!(similar(v), J, v)
+Base.:*(J::Jacobian, v::ShootingVector) = LinearAlgebra.mul!(similar(v), J, v)

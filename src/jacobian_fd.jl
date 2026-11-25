@@ -24,19 +24,19 @@ once, a central one twice, and the tangent equation never. `mul!(out, J, v)` or 
 # Arguments
 - `P`: the propagator, with `propagate!` and `rhs!`, and `shift!` and `dshift!` for relative
   periodic orbits; no `tangent!`.
-- `z::MultiVector`: the point, kept, not copied; the residual is evaluated there once.
+- `z::ShootingVector`: the point, kept, not copied; the residual is evaluated there once.
 - `difference::Symbol=:forward`: `:forward` or `:central`, as for `jacobianFD`.
 - `ϵ`: the relative step of `jacobianFD`, or `nothing` for its default.
 """
-mutable struct JacobianFD{PT, V<:MultiVector, D, H}
+mutable struct JacobianFD{PT, V<:ShootingVector, D, H}
     P::PT        # the propagator
     z::V         # the point, not a copy
     D::D         # the finite difference of the residual, of NKRoots.jl, at z
     f::H         # f at the first seed, a batch of one state
     g::Vector{H} # the generators at the first seed, one per shift
 
-    function JacobianFD(P, z::MultiVector; difference::Symbol=:forward,
-                                           ϵ::Union{Real, Nothing}=nothing)
+    function JacobianFD(P, z::ShootingVector; difference::Symbol=:forward,
+                                              ϵ::Union{Real, Nothing}=nothing)
         # ---- the difference of the residual at z, which evaluates the residual once ----
         D = NKRoots.jacobianFD(Residual(P), z; difference=difference, ϵ=ϵ)
 
@@ -63,10 +63,10 @@ NKRoots.jl calls; the second evaluates the residual, with one integration of the
 
 # Arguments
 - `J::JacobianFD`: the Jacobian, changed.
-- `z::MultiVector`: the new point, kept, not copied.
-- `r::MultiVector`: the residual at `z`.
+- `z::ShootingVector`: the new point, kept, not copied.
+- `r::ShootingVector`: the residual at `z`.
 """
-function NKRoots.update!(J::JacobianFD, z::MultiVector, r::MultiVector)
+function NKRoots.update!(J::JacobianFD, z::ShootingVector, r::ShootingVector)
     J.z = z
 
     # ---- the difference at z, with the residual there ----
@@ -81,10 +81,10 @@ function NKRoots.update!(J::JacobianFD, z::MultiVector, r::MultiVector)
     return J
 end
 
-NKRoots.update!(J::JacobianFD, z::MultiVector) =
+NKRoots.update!(J::JacobianFD, z::ShootingVector) =
     NKRoots.update!(J, z, Residual(J.P)(similar(z), z))
 
-function LinearAlgebra.mul!(out::MultiVector, J::JacobianFD, v::MultiVector)
+function LinearAlgebra.mul!(out::ShootingVector, J::JacobianFD, v::ShootingVector)
     # ---- the difference of the residual: the rows of the seeds, with the period and the shifts ----
     LinearAlgebra.mul!(out, J.D, v)
 
@@ -98,4 +98,4 @@ function LinearAlgebra.mul!(out::MultiVector, J::JacobianFD, v::MultiVector)
     return out
 end
 
-Base.:*(J::JacobianFD, v::MultiVector) = LinearAlgebra.mul!(similar(v), J, v)
+Base.:*(J::JacobianFD, v::ShootingVector) = LinearAlgebra.mul!(similar(v), J, v)

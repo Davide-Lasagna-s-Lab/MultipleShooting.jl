@@ -26,31 +26,31 @@
 #
 # Both systems are solved by GMRES (gmres.jl), with the preconditioner of J on the right and the
 # identity on the parameter. The step is shortened by backtracking, halved until the residual falls
-# by a share of what a linear problem would give. An extended vector is a MultiVector with the
+# by a share of what a linear problem would give. An extended vector is a ShootingVector with the
 # parameter as one more scalar, after the period and the shifts.
 
 const _ETA = 1e-3 # share of the fall of a linear problem that a step must reach
 
 # the unknowns z, or a vector like them, and the parameter p as one vector, with seeds of its own
-_extended(z::MultiVector, p::Real) = MultiVector(copy(z.X), [z.d; p])
+_extended(z::ShootingVector, p::Real) = ShootingVector(copy(z.X), [z.d; p])
 
 # the unknowns of an extended vector, sharing its seeds
-_unknowns(x::MultiVector) = MultiVector(x.X, x.d[1:(end - 1)])
+_unknowns(x::ShootingVector) = ShootingVector(x.X, x.d[1:(end - 1)])
 
 # the preconditioner M of the unknowns applied to an extended vector, the identity on the
 # parameter, or no preconditioner at all
-_precondition(::Nothing, y::MultiVector) = y
+_precondition(::Nothing, y::ShootingVector) = y
 
-function _precondition(M, y::MultiVector)
+function _precondition(M, y::ShootingVector)
     v = _unknowns(y)
     o = LinearAlgebra.ldiv!(similar(v), M, v)
 
-    return MultiVector(o.X, [o.d; y.d[end]])
+    return ShootingVector(o.X, [o.d; y.d[end]])
 end
 
 # the Jacobian J, and the preconditioner M when there is one, moved to the unknowns z with the
 # propagator P of a new parameter
-function _move!(J::Jacobian, M, P, z::MultiVector)
+function _move!(J::Jacobian, M, P, z::ShootingVector)
     J.P = P
     NKRoots.update!(J, z)
     M === nothing &&
@@ -63,7 +63,7 @@ end
 
 # the column of the parameter at (z, p), c = ∂F/∂p, by the central difference of the residual F!
 # with the step ϵ, two integrations of the seeds
-function _difference(F!, z::MultiVector, p::Real, ϵ::Real)
+function _difference(F!, z::ShootingVector, p::Real, ϵ::Real)
     c  = F!(similar(z), z, p + ϵ)
     b  = F!(similar(z), z, p - ϵ)
     c .= (c .- b) ./ (2ϵ)
@@ -78,7 +78,9 @@ end
 #     [ t_zᵀ t_p ] [ δp ] = [ b_p ],
 #
 # by GMRES with the preconditioner M on the right
-function _bordered(J::Jacobian, M, c::MultiVector, t::MultiVector, b::MultiVector; tol, maxiter)
+function _bordered(J::Jacobian, M, c::ShootingVector,
+                                   t::ShootingVector,
+                                   b::ShootingVector; tol, maxiter)
     function A!(out, y)
         v  = _precondition(M, y)
         o  = J*_unknowns(v)
@@ -95,7 +97,7 @@ end
 
 # the unit null vector of [J c], with a positive product with the extended vector t: the solution
 # of the bordered system with t in the last row and the right-hand side (0, 1)
-function _tangent(J::Jacobian, M, c::MultiVector, t::MultiVector; tol, maxiter)
+function _tangent(J::Jacobian, M, c::ShootingVector, t::ShootingVector; tol, maxiter)
     b  = similar(t)
     b .= 0
     b.d[end] = 1
@@ -108,16 +110,16 @@ end
 # the search with the parameter free from the unknowns z, changed to the last iterate, and the
 # parameter p, with the extended vector t in the last row of the first system: how it ends, its
 # iterations, the last residual and parameter, and the unit tangent at the last iterate
-function _free!(family, z::MultiVector, p::Real, t::MultiVector;   precond=nothing,
-                                                                  residual=nothing,
-                                                                    column::Symbol=:forced,
-                                                                       tol::Real=1e-10,
-                                                                   maxiter::Int=100,
-                                                                    bounds::NTuple{2, Real}=(-Inf, Inf),
-                                                                   periods::NTuple{2, Real}=(0.0, Inf),
-                                                                         ϵ::Real=1e-6,
-                                                                krylov_tol::Real=1e-3,
-                                                                krylov_dim::Int=200)
+function _free!(family, z::ShootingVector, p::Real, t::ShootingVector;   precond=nothing,
+                                                                        residual=nothing,
+                                                                          column::Symbol=:forced,
+                                                                             tol::Real=1e-10,
+                                                                         maxiter::Int=100,
+                                                                          bounds::NTuple{2, Real}=(-Inf, Inf),
+                                                                         periods::NTuple{2, Real}=(0.0, Inf),
+                                                                               ϵ::Real=1e-6,
+                                                                      krylov_tol::Real=1e-3,
+                                                                      krylov_dim::Int=200)
     # ---- input checks ----
     column in (:forced, :difference) ||
         throw(ArgumentError("column must be :forced or :difference"))
@@ -199,7 +201,7 @@ parameter is weighed by its scale in `family`.
 
 # Arguments
 - `family`: a function `p -> P`, the propagator at the parameter `p`, of one type for all `p`.
-- `z::MultiVector`: the guess, overwritten with the last iterate.
+- `z::ShootingVector`: the guess, overwritten with the last iterate.
 - `p::Real`: the parameter of the guess.
 - `precond=nothing`: a [`Preconditioner`](@ref) built at `z` with `family(p)`, moved with the
   iterates, or none.
@@ -224,7 +226,7 @@ A named tuple with
 - `res::Float64`: the last residual.
 - `p::Float64`: the last parameter.
 """
-function freesearch!(family, z::MultiVector, p::Real; kw...)
+function freesearch!(family, z::ShootingVector, p::Real; kw...)
     # ---- the parameter alone in the last row of the first system ----
     t  = _extended(z, 0.0)
     t .= 0

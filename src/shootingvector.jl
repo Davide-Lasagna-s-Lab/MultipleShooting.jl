@@ -13,7 +13,7 @@
 # lives.
 
 """
-    MultiVector(X, d)
+    ShootingVector(X, d)
 
 The unknowns of multiple shooting, the seeds and the scalars,
 
@@ -30,48 +30,48 @@ broadcasts like a vector, `w .= α .* z .+ w`, on the seeds and the scalars sepa
   continuous symmetry, `[T]` for a periodic orbit. [`period`](@ref), [`nshifts`](@ref) and
   [`shift`](@ref) read them.
 """
-struct MultiVector{A}
+struct ShootingVector{A}
     X::A               # the seeds
     d::Vector{Float64} # the scalars: the period, then the shifts
 
-    MultiVector(X, d::AbstractVector) = new{typeof(X)}(X, convert(Vector{Float64}, d))
+    ShootingVector(X, d::AbstractVector) = new{typeof(X)}(X, convert(Vector{Float64}, d))
 end
 
 # the number of segments of the orbit, that of the seeds
-nsegments(z::MultiVector) = nsegments(z.X)
+nsegments(z::ShootingVector) = nsegments(z.X)
 
 # ---- the scalars: d[1] is the period, d[2:end] the shifts ----
 """
-    period(z::MultiVector) -> T
+    period(z::ShootingVector) -> T
 
 The period, the first scalar of `z`.
 
 # Arguments
-- `z::MultiVector`: the unknowns.
+- `z::ShootingVector`: the unknowns.
 """
-period(z::MultiVector) = z.d[1]
+period(z::ShootingVector) = z.d[1]
 
 """
-    nshifts(z::MultiVector) -> Int
+    nshifts(z::ShootingVector) -> Int
 
 The number of shifts, one per continuous symmetry, zero for a periodic orbit.
 
 # Arguments
-- `z::MultiVector`: the unknowns.
+- `z::ShootingVector`: the unknowns.
 """
-nshifts(z::MultiVector) = length(z.d) - 1
+nshifts(z::ShootingVector) = length(z.d) - 1
 
 """
-    shift(z::MultiVector, i) -> sᵢ
+    shift(z::ShootingVector, i) -> sᵢ
 
 The `i`-th shift.
 
 # Arguments
-- `z::MultiVector`: the unknowns.
+- `z::ShootingVector`: the unknowns.
 - `i::Integer`: the index of the shift, from 1 to [`nshifts`](@ref)`(z)`, checked, since `i = 0`
   would return the period.
 """
-function shift(z::MultiVector, i::Integer)
+function shift(z::ShootingVector, i::Integer)
     1 <= i <= nshifts(z) ||
         throw(BoundsError(z.d[2:end], i))
 
@@ -79,23 +79,24 @@ function shift(z::MultiVector, i::Integer)
 end
 
 """
-    shifts(z::MultiVector) -> s
+    shifts(z::ShootingVector) -> s
 
 All the shifts, a view of the scalars of `z`, empty for a periodic orbit: what [`shift!`](@ref)
 takes.
 
 # Arguments
-- `z::MultiVector`: the unknowns.
+- `z::ShootingVector`: the unknowns.
 """
-shifts(z::MultiVector) = view(z.d, 2:lastindex(z.d))
+shifts(z::ShootingVector) = view(z.d, 2:lastindex(z.d))
 
-Base.similar(z::MultiVector) = MultiVector(similar(z.X), similar(z.d))
+Base.similar(z::ShootingVector) = ShootingVector(similar(z.X), similar(z.d))
 
-Base.copy(z::MultiVector) = MultiVector(copy(z.X), copy(z.d))
+Base.copy(z::ShootingVector) = ShootingVector(copy(z.X), copy(z.d))
 
-LinearAlgebra.dot(z::MultiVector, w::MultiVector) = _dot(z.X, w.X) + LinearAlgebra.dot(z.d, w.d)
+LinearAlgebra.dot(z::ShootingVector, w::ShootingVector) =
+    _dot(z.X, w.X) + LinearAlgebra.dot(z.d, w.d)
 
-LinearAlgebra.norm(z::MultiVector) = sqrt(LinearAlgebra.dot(z, z))
+LinearAlgebra.norm(z::ShootingVector) = sqrt(LinearAlgebra.dot(z, z))
 
 
 # ---------------------------------------------------------------------------- #
@@ -103,34 +104,35 @@ LinearAlgebra.norm(z::MultiVector) = sqrt(LinearAlgebra.dot(z, z))
 # ---------------------------------------------------------------------------- #
 
 # a style of its own, which wins over the numbers of an expression
-struct MultiStyle <: Broadcast.BroadcastStyle end
+struct ShootingStyle <: Broadcast.BroadcastStyle end
 
-Base.BroadcastStyle(::Type{<:MultiVector}) = MultiStyle()
-Base.BroadcastStyle(s::MultiStyle, ::Broadcast.DefaultArrayStyle{0}) = s
-Base.broadcastable(z::MultiVector) = z
+Base.BroadcastStyle(::Type{<:ShootingVector}) = ShootingStyle()
+Base.BroadcastStyle(s::ShootingStyle, ::Broadcast.DefaultArrayStyle{0}) = s
+Base.broadcastable(z::ShootingVector) = z
 
-# the same expression on one part, :X or :d: every MultiVector replaced by that part
-_part(z::MultiVector, part::Symbol) = getfield(z, part)
+# the same expression on one part, :X or :d: every ShootingVector replaced by that part
+_part(z::ShootingVector, part::Symbol) = getfield(z, part)
 _part(bc::Broadcast.Broadcasted, part::Symbol) =
     Broadcast.broadcasted(bc.f, map(a -> _part(a, part), bc.args)...)
 _part(x, part::Symbol) = x
 
 # w .= expression: the expression on the seeds, then on the scalars. Taking over materialize!
-# and copyto! avoids the axes of the destination, which a MultiVector does not have
-Broadcast.materialize!(::MultiStyle, w::MultiVector, bc::Broadcast.Broadcasted) = copyto!(w, bc)
+# and copyto! avoids the axes of the destination, which a ShootingVector does not have
+Broadcast.materialize!(::ShootingStyle, w::ShootingVector, bc::Broadcast.Broadcasted) =
+    copyto!(w, bc)
 
-function Base.copyto!(w::MultiVector, bc::Broadcast.Broadcasted)
+function Base.copyto!(w::ShootingVector, bc::Broadcast.Broadcasted)
     Broadcast.materialize!(w.X, _part(bc, :X))
     Broadcast.materialize!(w.d, _part(bc, :d))
 
     return w
 end
 
-# z .+ w, out of place: a new vector shaped as the first MultiVector of the expression
-Broadcast.instantiate(bc::Broadcast.Broadcasted{MultiStyle}) = bc
-Base.copy(bc::Broadcast.Broadcasted{MultiStyle}) = copyto!(similar(_first(bc.args...)), bc)
+# z .+ w, out of place: a new vector shaped as the first ShootingVector of the expression
+Broadcast.instantiate(bc::Broadcast.Broadcasted{ShootingStyle}) = bc
+Base.copy(bc::Broadcast.Broadcasted{ShootingStyle}) = copyto!(similar(_first(bc.args...)), bc)
 
-_first(z::MultiVector, args...) = z
+_first(z::ShootingVector, args...) = z
 _first(bc::Broadcast.Broadcasted, args...) = something(_first(bc.args...), _first(args...))
 _first(x, args...) = _first(args...)
 _first() = nothing

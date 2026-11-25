@@ -17,7 +17,7 @@
     tangent_sensitivity(P, z; tol=1e-10, maxiter=200) -> dz
 
 The derivative `dz/dp` of the converged orbit `z` of the propagator `P` in the parameter of the
-equation, as a [`MultiVector`](@ref): the derivatives of the seeds, of the period and of the
+equation, as a [`ShootingVector`](@ref): the derivatives of the seeds, of the period and of the
 shifts, the solution of
 
     J dz/dp = -∂F/∂p,   (∂F/∂p)ᵢ₊₁ = ∂φ_τ(uᵢ)/∂p,   (∂F/∂p)₁ = S(s) ∂φ_τ(u_m)/∂p,
@@ -30,11 +30,11 @@ by GMRES.
 
 # Arguments
 - `P`: the propagator, with `forced!` beside the functions of the [`Jacobian`](@ref).
-- `z::MultiVector`: a converged orbit, not changed.
+- `z::ShootingVector`: a converged orbit, not changed.
 - `tol::Real=1e-10`: the relative residual of GMRES.
 - `maxiter::Int=200`: the most iterations of GMRES.
 """
-function tangent_sensitivity(P, z::MultiVector; tol::Real=1e-10, maxiter::Int=200)
+function tangent_sensitivity(P, z::ShootingVector; tol::Real=1e-10, maxiter::Int=200)
     J = Jacobian(P, z)
 
     # ---- the right-hand side, -∂F/∂p ----
@@ -48,7 +48,7 @@ end
 # the derivative ∂F/∂p of the residual of the propagator P at z in the parameter of the equation,
 # at fixed seeds, period and shifts: one integration of the seeds by the forced tangent equation.
 # The shifts are taken not to depend on the parameter
-function _forced(P, z::MultiVector)
+function _forced(P, z::ShootingVector)
     X = copy(z.X)
 
     # ---- vectors from zero ----
