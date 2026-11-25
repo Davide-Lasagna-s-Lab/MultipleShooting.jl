@@ -4,7 +4,7 @@
 #     ⟨z, w⟩ = Σᵢ ⟨uᵢ, vᵢ⟩ + Σⱼ dⱼ d'ⱼ,
 #
 # where ⟨uᵢ, vᵢ⟩ is the inner product of two states, that of the batches of the seeds, dots (see
-# seeds.jl): GMRES, the phase conditions, the bases of the subspace iteration and the
+# batch.jl): GMRES, the phase conditions, the bases of the subspace iteration and the
 # preconditioner all take it from there, so that they share one geometry.
 #
 # Broadcasting acts on the two parts separately: an expression such as w .= α .* z .+ β .* w is
@@ -25,7 +25,7 @@ broadcasts like a vector, `w .= α .* z .+ w`, on the seeds and the scalars sepa
 
 # Arguments
 - `X`: the seeds, a batch of m states, as it is: an array whose last dimension runs over the
-  states, or a batch of the caller's (see seeds.jl).
+  states, or a batch of the caller's (see batch.jl).
 - `d::Vector{Float64}`: the scalars `[T, s₁, s₂, …]`, the period followed by one shift per
   continuous symmetry, `[T]` for a periodic orbit. [`period`](@ref), [`nshifts`](@ref) and
   [`shift`](@ref) read them.
@@ -37,7 +37,15 @@ struct MultiVector{A}
     MultiVector(X, d::AbstractVector) = new{typeof(X)}(X, convert(Vector{Float64}, d))
 end
 
-nsegments(z::MultiVector) = nsegments(z.X)
+"""
+    nsegments(z::MultiVector) -> Int
+
+The number of segments of the orbit, that of the seeds of `z`.
+
+# Arguments
+- `z::MultiVector`: the unknowns.
+"""
+nsegments(z::MultiVector) = nstates(z.X)
 
 # ---- the scalars: d[1] is the period, d[2:end] the shifts ----
 """

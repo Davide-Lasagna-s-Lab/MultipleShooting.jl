@@ -14,7 +14,8 @@ export propagate!,
        shift!,
        dshift!,
        dpropagate!,
-       nsegments,
+       Batched,
+       nstates,
        states,
        similar_states,
        roll_forward!,
@@ -22,6 +23,7 @@ export propagate!,
        dots,
        coefficients,
        MultiVector,
+       nsegments,
        period,
        nshifts,
        shift,
@@ -39,7 +41,7 @@ export propagate!,
        freesearch!,
        continuation!
 
-include("seeds.jl")
+include("batch.jl")
 include("interface.jl")
 include("multivector.jl")
 include("residual.jl")

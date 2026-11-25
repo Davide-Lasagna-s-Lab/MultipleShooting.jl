@@ -86,23 +86,23 @@ _forced(P::LorenzPropagator) = (t, X, dX, V, dV) -> lorenz_forced!(dV, X, V, P.�
 _stretched(P::LorenzPropagator, τ) =
     (t, X, dX, V, dV) -> (lorenz_lin!(dV, X, V, P.ρ); dV .+= dX ./ τ; dV)
 
-# ---- the columns of a matrix: all the states at once ----
-MultipleShooting.propagate!(P::LorenzPropagator, X::AbstractMatrix, τ::Real) =
+# ---- a Batched, the columns of a matrix: all the states at once ----
+MultipleShooting.propagate!(P::LorenzPropagator, X::Batched, τ::Real) =
     (advance!(_rhs(P), X, τ, P.dt); X)
 
-MultipleShooting.tangent!(P::LorenzPropagator, X::AbstractMatrix, V::AbstractMatrix, τ::Real) =
+MultipleShooting.tangent!(P::LorenzPropagator, X::Batched, V::Batched, τ::Real) =
     (advance!(_rhs(P), _lin(P), X, V, τ, P.dt); V)
 
-MultipleShooting.tangent!(P::LorenzPropagator, X::AbstractMatrix, V::AbstractVector{<:AbstractMatrix}, τ::Real) =
+MultipleShooting.tangent!(P::LorenzPropagator, X::Batched, V::AbstractVector{<:Batched}, τ::Real) =
     directions!(P, X, V, τ)
 
-MultipleShooting.forced!(P::LorenzPropagator, X::AbstractMatrix, V::AbstractMatrix, τ::Real) =
+MultipleShooting.forced!(P::LorenzPropagator, X::Batched, V::Batched, τ::Real) =
     (advance!(_rhs(P), _forced(P), X, V, τ, P.dt); V)
 
-MultipleShooting.dpropagate!(P::LorenzPropagator, X::AbstractMatrix, V::AbstractMatrix, τ::Real) =
+MultipleShooting.dpropagate!(P::LorenzPropagator, X::Batched, V::Batched, τ::Real) =
     (V .= 0; advance!(_rhs(P), _stretched(P, τ), X, V, τ, P.dt); V)
 
-MultipleShooting.rhs!(P::LorenzPropagator, F::AbstractMatrix, X::AbstractMatrix) = lorenz_rhs!(F, X, P.ρ)
+MultipleShooting.rhs!(P::LorenzPropagator, F::Batched, X::Batched) = lorenz_rhs!(F, X, P.ρ)
 
 # ---- the Sliced of sliced.jl: one state at a time ----
 MultipleShooting.propagate!(P::LorenzPropagator, X::Sliced, τ::Real) =

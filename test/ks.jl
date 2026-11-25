@@ -82,7 +82,7 @@ end
 # the equal steps over τ, of at most dt
 ks_steps(P::KSPropagator, τ) = Flows.TimeStepConstant(τ/max(1, ceil(Int, τ/P.dt)))
 
-function MultipleShooting.propagate!(P::KSPropagator, X::AbstractMatrix, τ::Real)
+function MultipleShooting.propagate!(P::KSPropagator, X::Batched, τ::Real)
     # ---- the flow works on a copy, of the type of its registers: X may be a view ----
     Y    = copy(X)
     N!,  = ks_terms(P, Y)
@@ -93,7 +93,7 @@ function MultipleShooting.propagate!(P::KSPropagator, X::AbstractMatrix, τ::Rea
     return X
 end
 
-function MultipleShooting.tangent!(P::KSPropagator, X::AbstractMatrix, V::AbstractMatrix, τ::Real)
+function MultipleShooting.tangent!(P::KSPropagator, X::Batched, V::Batched, τ::Real)
     # ---- the states and the vectors as one coupled state, on copies ----
     Z      = Flows.couple(copy(X), copy(V))
     N!, L! = ks_terms(P, Z[1])
@@ -106,10 +106,10 @@ function MultipleShooting.tangent!(P::KSPropagator, X::AbstractMatrix, V::Abstra
     return V
 end
 
-MultipleShooting.tangent!(P::KSPropagator, X::AbstractMatrix, V::AbstractVector{<:AbstractMatrix}, τ::Real) =
+MultipleShooting.tangent!(P::KSPropagator, X::Batched, V::AbstractVector{<:Batched}, τ::Real) =
     directions!(P, X, V, τ)
 
-function MultipleShooting.rhs!(P::KSPropagator, F::AbstractMatrix, X::AbstractMatrix)
+function MultipleShooting.rhs!(P::KSPropagator, F::Batched, X::Batched)
     # ---- Λ û + N(û) ----
     N!, = ks_terms(P, X)
     N!(0.0, X, F)
@@ -119,8 +119,8 @@ function MultipleShooting.rhs!(P::KSPropagator, F::AbstractMatrix, X::AbstractMa
 end
 
 # û_k e^{iκ s}, the one shift s[1]
-MultipleShooting.shift!(P::KSPropagator, X::AbstractMatrix, s) = (X .*= cis.(P.κ .* s[1]); X)
+MultipleShooting.shift!(P::KSPropagator, X::Batched, s) = (X .*= cis.(P.κ .* s[1]); X)
 
 # the generator ∂ₓ, iκ û_k
-MultipleShooting.dshift!(P::KSPropagator, G::AbstractMatrix, X::AbstractMatrix, j::Int) =
+MultipleShooting.dshift!(P::KSPropagator, G::Batched, X::Batched, j::Int) =
     (G .= im .* P.κ .* X; G)

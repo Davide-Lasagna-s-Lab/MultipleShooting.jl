@@ -344,7 +344,7 @@ end
 # column that vanishes at a point stays zero there, with a zero on the diagonal of R
 function _gram_schmidt!(V::Vector)
     k′ = length(V)
-    m  = nsegments(first(V))
+    m  = nstates(first(V))
     R  = zeros(k′, k′, m)
 
     for a in 1:k′
