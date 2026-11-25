@@ -12,9 +12,9 @@
 #     ψᵢ Vᵢ^(r-1) = Vᵢ₊₁^(r) Rᵢ^(r),   i = 1, …, m - 1,   S(s) ψ_m V_m^(r-1) = V₁^(r) R_m^(r),
 #
 # a QR factorisation by two passes of modified Gram–Schmidt, with Rᵢ^(r) upper triangular. The k′
-# directions of the m segments go to tangent! in one call, so that a step costs k′ integrations of
-# the tangent equation over the orbit, and one of the equation when the propagator shares it among
-# the directions. On a fixed loop the distance of the leading k invariant directions from the span
+# directions of the m segments go to the tangent L in one call, so that a step costs k′
+# integrations of the tangent equation over the orbit, and one of the equation when the tangent
+# shares it among the directions. On a fixed loop the distance of the leading k invariant directions from the span
 # of the whole basis falls by about e^{-(Λ_k - Λ_{k′+1}) τ} per step, with Λ the Floquet
 # exponents.
 #
@@ -64,7 +64,7 @@
 # rows are stored, for two reasons:
 #
 #   - V[k₁] is like the seeds, so that it is shifted and rolled forward as a vector of the Jacobian
-#     is, and the propagator takes it as it takes the seeds;
+#     is, and the tangent takes it as it takes the seeds;
 #
 #   - an operation between two directions is one operation at all the points. The inner products
 #     dots(V[k₁], V[k₂]) are m numbers, one per point, ⟨vᵢ^(k₁), vᵢ^(k₂)⟩, and
@@ -73,7 +73,7 @@
 #     written once, as loops over the pairs of directions, and runs at all the points together,
 #     on a GPU as operations on whole arrays.
 #
-# A step hands the whole vector V to tangent!, and it is for the propagator to advance the m k′
+# A step hands the whole vector V to the tangent, and it is for the tangent to advance the m k′
 # states together, with the shooting points integrated once for all the directions. The bases
 # before a step and the turn, U and Z, are laid out as V.
 #
@@ -97,51 +97,60 @@
 #     Nothing goes from the host to the device.
 
 """
-    Subspace(P, z; k′)
+    Subspace(L, z; k′, S=nothing)
 
 Orthonormal bases of `k′` directions at every shooting point, the seeds of `z`, random at the
-start, for subspace iteration around the loop of the propagator `P` at `z`. [`iterate!`](@ref)
+start, for subspace iteration around the loop at `z`, with the tangent `L`. [`iterate!`](@ref)
 makes one subspace step, with the Galerkin blocks and the turn that come with it,
 [`maxturn`](@ref) gives the turn of the last step, and `update!(S, z; tol, k)` moves the subspace
 to `z` and makes steps there until the turn passes the test.
 
 # Arguments
-- `P`: the propagator, with `tangent!`, and `shift!` for relative periodic orbits.
+- `L`: the tangent, called as `L(X, V, τ)` with a vector `V` of `k′` perturbations of every seed.
 - `z::ShootingVector`: the point, kept, not copied.
 - `k′::Int`: the number of directions of each basis, at least 1, required.
+- `S=nothing`: the shift, called as `S(X, s)`, for relative periodic orbits.
 """
-mutable struct Subspace{PT, ZT<:ShootingVector, A}
-      P::PT                 # the propagator
-      z::ZT                 # the point, not a copy: its seeds, period and shifts give the tangent maps
-      V::Vector{A}          # device: the bases after the last step, Vᵢ^(r), stored by direction
-      U::Vector{A}          # device: the bases before it, Vᵢ^(r-1), which the preconditioner uses
-      E::Array{Float64, 3}  # host: their Galerkin blocks Eᵢ = E[:, :, i], k′ × k′ × m, Inf at first
-      Z::Vector{A}          # device: the turn of the last step, Zᵢ, then the Q of its QR
-      σ::Matrix{Float64}    # host: sin ϑⱼ,ᵢ = σⱼ(Zᵢ), increasing in j, k′ × m, Inf at first
-    tmp::A                  # device: the shooting points, then the ends of the segments
-  steps::Int                # subspace steps of the last update!
+mutable struct Subspace{ZT<:ShootingVector, A}
+           L::Any                  # the tangent
+           S::Any                  # the shift, or nothing for periodic orbits
+           z::ZT                   # the point, not a copy: its seeds, period and shifts give
+                                   # the tangent maps
+           V::Vector{A}            # device: the bases after the last step, Vᵢ^(r), stored by
+                                   # direction
+           U::Vector{A}            # device: the bases before it, Vᵢ^(r-1), which the
+                                   # preconditioner uses
+           E::Array{Float64, 3}    # host: their Galerkin blocks Eᵢ = E[:, :, i], k′ × k′ × m,
+                                   # Inf at first
+           Z::Vector{A}            # device: the turn of the last step, Zᵢ, then the Q of its QR
+           σ::Matrix{Float64}      # host: sin ϑⱼ,ᵢ = σⱼ(Zᵢ), increasing in j, k′ × m, Inf at first
+         tmp::A                    # device: the shooting points, then the ends of the segments
+       steps::Int                  # subspace steps of the last update!
 
-    function Subspace(P, z::ShootingVector; k′::Int)
+    function Subspace(L, z::ShootingVector; k′::Int, S=nothing)
         m = nsegments(z)
 
         # ---- input checks ----
         k′ >= 1 ||
             throw(ArgumentError("k′ must be at least 1"))
+        nshifts(z) > 0 && S === nothing &&
+            throw(ArgumentError("a relative periodic orbit needs its shift S"))
 
         # ---- random orthonormal bases: an element like the seeds for every direction ----
         X = z.X
         V = [Random.randn!(similar(X)) for _ in 1:k′]
         _orthonormalise!(V)
 
-        return new{typeof(P), typeof(z), typeof(X)}(P,
-                                                    z,
-                                                    V,
-                                                    similar.(V),
-                                                    fill(Inf, k′, k′, m),
-                                                    similar.(V),
-                                                    fill(Inf, k′, m),
-                                                    similar(X),
-                                                    0)
+        return new{typeof(z), typeof(X)}(L,
+                                          S,
+                                          z,
+                                          V,
+                                          similar.(V),
+                                          fill(Inf, k′, k′, m),
+                                          similar.(V),
+                                          fill(Inf, k′, m),
+                                          similar(X),
+                                          0)
     end
 end
 
@@ -160,8 +169,8 @@ images give the Galerkin blocks of the bases before the step,
 After it the new bases give the turn Zᵢ and its singular values, `S.σ[:, i]`, the sines of the
 principal angles between the old span at point i and the new, in increasing order. The bases before
 the step are kept in `S.U`, and the end points of the segments, φ_τ(uᵢ), in `S.tmp`. The k′
-directions advance together along the shooting points, by one call of [`tangent!`](@ref) on the
-vector `S.V`.
+directions advance together along the shooting points, by one call of the tangent on the vector
+`S.V`.
 
 # Arguments
 - `S::Subspace`: the subspace, changed.
@@ -186,13 +195,13 @@ function iterate!(S::Subspace)
     #      end points of the segments, which the preconditioner takes from there ----
     #      V[k₁] = (ψ₁ v₁^(k₁), …, ψ_m v_m^(k₁)),   tmp = (φ_τ(u₁), …, φ_τ(u_m))
     copyto!(S.tmp, z.X)
-    tangent!(S.P, S.tmp, S.V, τ)
+    S.L(S.tmp, S.V, τ)
 
     # ---- each image at the point it reaches: that of segment i belongs to point i + 1, and that
     #      of the last segment, shifted, to point 1 ----
     #      V[k₁] = (S(s) ψ_m v_m^(k₁), ψ₁ v₁^(k₁), …, ψ_{m-1} v_{m-1}^(k₁))
     for k₁ in 1:k′
-        nshifts(z) > 0 && shift!(S.P, tail(S.V[k₁]), shifts(z))
+        nshifts(z) > 0 && S.S(tail(S.V[k₁]), shifts(z))
         roll_forward!(S.V[k₁])
     end
 

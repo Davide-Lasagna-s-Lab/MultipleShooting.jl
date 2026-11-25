@@ -22,7 +22,7 @@
 #     E[T, 1] = f(u₁)ᵀ U₁,   E[sⱼ, 1] = gⱼ(u₁)ᵀ U₁,
 #
 # with f and the generators at the end points of the segments and at the first seed: the column of
-# the period is f at the end points, the default of dpropagate!, enough for a preconditioner. The
+# the period is f at the end points, the default of the Jacobian, enough for a preconditioner. The
 # subspace step integrates the seeds along with the bases, and leaves the end points φ_τ(uᵢ), so
 # that these need no integration of their own: an update of the preconditioner integrates the
 # seeds k′ times, those of its subspace step. E has m k′ + 1 + nshifts rows, and is factorised by
@@ -59,10 +59,11 @@
 const SOLVETOL = 1e-6
 
 """
-    Preconditioner(P, z; k′, k=k′, tol=1e-8, maxsteps=100, sweeps=0, cap=:error, every=1)
+    Preconditioner(L, F, z; k′, S=nothing, dS=nothing, k=k′, tol=1e-8, maxsteps=100, sweeps=0,
+                   cap=:error, every=1)
 
-A right preconditioner of the Jacobian of the propagator `P` at `z`, on the leading directions
-of the loop, from a [`Subspace`](@ref) along it, with random bases at the start: with Uᵢ the
+A right preconditioner of the Jacobian at `z`, with the tangent `L` and the right-hand side `F`, on the
+leading directions of the loop, from a [`Subspace`](@ref) along it, with random bases at the start: with Uᵢ the
 bases of `k′` directions at the seeds,
 
     W = blockdiag(U₁, …, U_m, I),   E = Wᵀ J W,   M⁻¹ = -(I - W Wᵀ) + W E⁻¹ Wᵀ,
@@ -77,10 +78,12 @@ matrix of the vectors `M⁻¹ qⱼ`. Every subspace step integrates the seeds k�
 with E is checked: a relative residual above 1e-6 is an error, the sign of an E close to singular.
 
 # Arguments
-- `P`: the propagator, with `tangent!` and `rhs!`, and `shift!` and `dshift!` for relative
-  periodic orbits.
+- `L`: the tangent, called as `L(X, V, τ)` with a vector `V` of `k′` perturbations of every seed.
+- `F`: the right-hand side, called as `F(dX, X)`.
 - `z::ShootingVector`: the point, kept, not copied.
 - `k′::Int`: the number of directions per seed, required.
+- `S=nothing`, `dS=nothing`: the shift and its generator, as for the [`Jacobian`](@ref), for
+  relative periodic orbits.
 - `k::Int=k′`: the number of leading directions that the test checks, from 1 to `k′`.
 - `tol::Real=1e-8`: the tolerance ε_sub on the sine of the turn of the bases, as
   [`maxturn`](@ref).
@@ -95,8 +98,10 @@ with E is checked: a relative residual above 1e-6 is an error, the sign of an E 
 """
 mutable struct Preconditioner{ST<:Subspace}
            S::ST                                         # the subspace iteration along the loop
+           F::Any                                        # the right-hand side
+          dS::Any                                        # the generator of the shift, or nothing
            E::SparseArrays.SparseMatrixCSC{Float64, Int} # the coarse matrix, m k′ + 1 + nshifts square
-           F::Any                                        # its sparse QR factorisation
+          QR::Any                                        # its sparse QR factorisation
          tol::Float64                                    # ε_sub, the tolerance on the turn
     maxsteps::Int                                        # subspace steps at most per update
            k::Int                                        # the leading directions tested
@@ -104,28 +109,37 @@ mutable struct Preconditioner{ST<:Subspace}
        every::Int                                        # Newton steps between updates, 0 for the first only
      updated::Vector{Bool}                               # whether each Newton step updated it
 
-    function Preconditioner(P, z::ShootingVector; k′::Int,
-                                                  k::Int=k′,
-                                                  tol::Real=1e-8,
-                                                  maxsteps::Int=100,
-                                                  sweeps::Int=0,
-                                                  cap::Symbol=:error,
-                                                  every::Int=1)
+    function Preconditioner(        L,
+                                    F,
+                                    z::ShootingVector;
+                                   k′::Int,
+                                    S=nothing,
+                                   dS=nothing,
+                                    k::Int=k′,
+                                  tol::Real=1e-8,
+                             maxsteps::Int=100,
+                               sweeps::Int=0,
+                                  cap::Symbol=:error,
+                                every::Int=1)
         # ---- input checks ----
         1 <= k <= k′ ||
             throw(ArgumentError("k must be between 1 and k′"))
+        nshifts(z) > 0 && (S === nothing || dS === nothing) &&
+            throw(ArgumentError("a relative periodic orbit needs its shift S and its generator dS"))
         every >= 0 ||
             throw(ArgumentError("every must be at least 0"))
 
         # ---- random bases at z, swept, then stepped there until they pass the test ----
-        S = Subspace(P, z; k′=k′)
+        B = Subspace(L, z; k′=k′, S=S)
         for _ in 1:sweeps
-            iterate!(S)
+            iterate!(B)
         end
-        update!(S, z; tol=tol, k=k, maxsteps=maxsteps, cap=cap)
+        update!(B, z; tol=tol, k=k, maxsteps=maxsteps, cap=cap)
 
         # ---- the coarse matrix, from the bases before the last step ----
-        M = new{typeof(S)}(S,
+        M = new{typeof(B)}(B,
+                           F,
+                           dS,
                            SparseArrays.spzeros(0, 0),
                            nothing,
                            tol,
@@ -168,7 +182,6 @@ end
 # E = Wᵀ A W from the bases before the last subspace step and their Galerkin blocks
 function _assemble!(M::Preconditioner)
     S  = M.S
-    P  = S.P
     z  = S.z
     k′ = length(S.U)
     m  = nsegments(z)
@@ -183,16 +196,24 @@ function _assemble!(M::Preconditioner)
     # ---- the end points left by the subspace step, the end of the last segment shifted ----
     #      Xᵢ = φ_τ(uᵢ),   X_m = S(s) φ_τ(u_m)
     X = copy(S.tmp)
-    ns > 0 && shift!(P, tail(X), shifts(z))
+    ns > 0 && S.S(tail(X), shifts(z))
 
     # ---- f there, each in the row of the seed it reaches, and the generators at the end of the
     #      last segment; f and the generators at the first seed ----
     #      Fᵢ₊₁ = f(φ_τ(uᵢ)),   F₁ = f(S(s) φ_τ(u_m)),   Gⱼ = gⱼ(S(s) φ_τ(u_m)),
     #      f₁ = f(u₁),   g₁ⱼ = gⱼ(u₁)
-    F  = roll_forward!(rhs!(P, similar(X), X))
-    G  = [dshift!(P, similar(tail(X)), tail(X), j) for j in 1:ns]
-    f₁ = head(rhs!(P, similar(z.X), z.X))
-    g₁ = [dshift!(P, similar(head(z.X)), head(z.X), j) for j in 1:ns]
+    F  = similar(X)
+    fz = similar(z.X)
+    G  = [similar(tail(X)) for j in 1:ns]
+    g₁ = [similar(head(z.X)) for j in 1:ns]
+    M.F(F, X)
+    M.F(fz, z.X)
+    for j in 1:ns
+        M.dS(G[j], tail(X), j)
+        M.dS(g₁[j], head(z.X), j)
+    end
+    roll_forward!(F)
+    f₁ = head(fz)
 
     # ---- the projections on the bases, one per seed, brought to the host: dots gives them
     #      where the seeds are and in the form that broadcasts against them, Array copies them
@@ -233,7 +254,7 @@ function _assemble!(M::Preconditioner)
     end
 
     M.E = SparseArrays.sparse(Is, Js, Es, n, n)
-    M.F = LinearAlgebra.qr(M.E)
+    M.QR = LinearAlgebra.qr(M.E)
 
     return M
 end
@@ -242,7 +263,7 @@ end
 # residual of every column checked against SOLVETOL. A larger one says that E is close to singular,
 # where no factorisation is accurate, and M⁻¹ would be wrong with no sign of it
 function _solve(M::Preconditioner, g::AbstractVecOrMat)
-    y = M.F \ g
+    y = M.QR \ g
 
     # ---- the relative residual ‖E y - g‖/‖g‖, column by column ----
     for (yc, gc) in zip(eachcol(y), eachcol(g))

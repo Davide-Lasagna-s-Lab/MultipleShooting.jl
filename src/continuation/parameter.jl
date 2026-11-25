@@ -1,17 +1,20 @@
 # A parameter of the equation as one more unknown.
 #
-# The propagator depends on a parameter p, through a function p -> P that the caller gives. The
-# residual is then F(z, p), and its zeros are no longer isolated: each orbit lies on a branch, a
-# curve in the unknowns and the parameter together, x = (z, p). The linearised equations have one
-# more unknown than equations,
+# The objects of the dynamics depend on a parameter p, through a function family(x, p), the object
+# x at the parameter p, that the caller gives, and by which the search moves each of them: the
+# flow G of the residual, the tangent L, the right-hand side F, the shift S and its generator dS,
+# the derivative dG and the forced tangent Lp of the Jacobian and the column, and those of the
+# preconditioner. The residual is then F(z, p), and its zeros are no longer isolated: each orbit
+# lies on a branch, a curve in the unknowns and the parameter together, x = (z, p). The
+# linearised equations have one more unknown than equations,
 #
 #     J δz + c δp = -F,   c = ∂F/∂p,
 #
 # with J the Jacobian at the parameter p and c the column of the parameter, from the tangent
-# equation forced by the derivative of the right-hand side in p, as for the sensitivity
-# (sensitivity/sensitivity.jl), or from a central difference of the residual in p. Their solutions form a
-# line, along the null vector n of [J c],
-# which at an orbit is the tangent of its branch. The search takes the shortest one, at right
+# equation forced by the derivative of the right-hand side in p, Lp, as for the sensitivity
+# (sensitivity/sensitivity.jl), or, with no Lp, from a central difference of the residual in p.
+# Their solutions form a line, along the null vector n of [J c], which at an orbit is the tangent
+# of its branch. The search takes the shortest one, at right
 # angles to n, the solution of the bordered system
 #
 #     [ J    c  ] [ δz ]     [ F ]
@@ -48,14 +51,28 @@ function _precondition(M, y::ShootingVector)
     return ShootingVector(o.X, [o.d; y.d[end]])
 end
 
-# the Jacobian J, and the preconditioner M when there is one, moved to the unknowns z with the
-# propagator P of a new parameter
-function _move!(J::Jacobian, M, P, z::ShootingVector)
-    J.P = P
+# the object x at the parameter p by the family, or nothing for none
+_at(family, x, p::Real) = x === nothing ? nothing : family(x, p)
+
+# the Jacobian J, and the preconditioner M when there is one, moved to the unknowns z and to the
+# parameter p, each of their objects moved there by the family
+function _move!(J::Jacobian, M, family, p::Real, z::ShootingVector)
+    # ---- the Jacobian ----
+    J.L  = family(J.L, p)
+    J.F  = family(J.F, p)
+    J.S  = _at(family, J.S, p)
+    J.dS = _at(family, J.dS, p)
+    J.dG = _at(family, J.dG, p)
     NKRoots.update!(J, z)
+
     M === nothing &&
         return J
-    M.S.P = P
+
+    # ---- the preconditioner, and its subspace ----
+    M.S.L = family(M.S.L, p)
+    M.S.S = _at(family, M.S.S, p)
+    M.F   = family(M.F, p)
+    M.dS  = _at(family, M.dS, p)
     NKRoots.update!(M, z)
 
     return J
@@ -108,24 +125,39 @@ function _tangent(J::Jacobian, M, c::ShootingVector, t::ShootingVector; tol, max
 end
 
 # the search with the parameter free from the unknowns z, changed to the last iterate, and the
-# parameter p, with the extended vector t in the last row of the first system: how it ends, its
-# iterations, the last residual and parameter, and the unit tangent at the last iterate
-function _free!(family, z::ShootingVector, p::Real, t::ShootingVector;   precond=nothing,
-                                                                        residual=nothing,
-                                                                          column::Symbol=:forced,
-                                                                             tol::Real=1e-10,
-                                                                         maxiter::Int=100,
-                                                                          bounds::NTuple{2, Real}=(-Inf, Inf),
-                                                                         periods::NTuple{2, Real}=(0.0, Inf),
-                                                                               ϵ::Real=1e-6,
-                                                                      krylov_tol::Real=1e-3,
-                                                                      krylov_dim::Int=200)
-    # ---- input checks ----
-    column in (:forced, :difference) ||
-        throw(ArgumentError("column must be :forced or :difference"))
+# parameter p, with the flow G, the tangent L and the right-hand side F, and the extended vector t
+# in the last row of the first system: how it ends, its iterations, the last residual and
+# parameter, and the unit tangent at the last iterate
+function _free!(    family,
+                         G,
+                         L,
+                         F,
+                         z::ShootingVector,
+                         p::Real,
+                         t::ShootingVector;
+                        Lp=nothing,
+                         S=nothing,
+                        dS=nothing,
+                        dG=nothing,
+                   precond=nothing,
+                  residual=nothing,
+                       tol::Real=1e-10,
+                   maxiter::Int=100,
+                    bounds::NTuple{2, Real}=(-Inf, Inf),
+                   periods::NTuple{2, Real}=(0.0, Inf),
+                         ϵ::Real=1e-6,
+                krylov_tol::Real=1e-3,
+                krylov_dim::Int=200)
+    # ---- the residual at the parameter q, by the flow and the shift there, or the one given ----
+    R(q) = Residual(family(G, q); S=_at(family, S, q), bounds=periods)
+    F!   = residual === nothing ? (r, u, q) -> R(q)(r, u) : residual
 
-    F!     = residual === nothing ? (r, u, q) -> Residual(family(q); bounds=periods)(r, u) : residual
-    J      = Jacobian(family(p), z)
+    # ---- the column of the parameter: by the forced tangent, or the difference of the residual ----
+    forced = Lp !== nothing && residual === nothing
+
+    J      = Jacobian(family(L, p), family(F, p), z; S  = _at(family, S, p),
+                                                     dS = _at(family, dS, p),
+                                                     dG = _at(family, dG, p))
     r      = F!(similar(z), z, p)
     zn     = similar(z)
     rn     = similar(z)
@@ -135,8 +167,8 @@ function _free!(family, z::ShootingVector, p::Real, t::ShootingVector;   precond
 
     while true
         # ---- the Jacobian, the preconditioner and the column at the iterate, and the tangent ----
-        _move!(J, precond, family(p), z)
-        c = column === :forced && residual === nothing ? _forced(J.P, z) : _difference(F!, z, p, ϵ)
+        _move!(J, precond, family, p, z)
+        c = forced ? _forced(family(Lp, p), J.S, z) : _difference(F!, z, p, ϵ)
         t = _tangent(J, precond, c, t; tol=krylov_tol, maxiter=krylov_dim)
         res < tol &&
             (status = :converged; break)
@@ -183,39 +215,43 @@ function _free!(family, z::ShootingVector, p::Real, t::ShootingVector;   precond
 end
 
 """
-    freesearch!(family, z, p; precond=nothing, column=:forced, tol=1e-10, maxiter=100,
-                bounds=(-Inf, Inf), periods=(0.0, Inf), ϵ=1e-6, krylov_tol=1e-3, krylov_dim=200)
-                -> (; status, iter, res, p)
+    freesearch!(family, G, L, F, z, p; Lp=nothing, S=nothing, dS=nothing, dG=nothing,
+                precond=nothing, tol=1e-10, maxiter=100, bounds=(-Inf, Inf), periods=(0.0, Inf),
+                ϵ=1e-6, krylov_tol=1e-3, krylov_dim=200) -> (; status, iter, res, p)
 
 The search for an orbit with a parameter of the equation as one more unknown, from the guess `z`
 at the parameter `p`. Each iteration takes the shortest solution of the linearised equations,
 
     J δz + c δp = -F,   c = ∂F/∂p,   ‖δz‖² + δp² least,
 
-with `J` the Jacobian at the propagator `family(p)` and `c` the column of the parameter, and
-halves it until the residual falls. The search ends on an orbit of `family(p)` at the
-parameter `p` where it lands on a branch, and does not aim at a parameter. A guess near an orbit
+with `J` the Jacobian at the parameter `p` and `c` the column of the parameter, and halves it
+until the residual falls. The search ends on an orbit at the parameter `p` where it lands on a
+branch, and does not aim at a parameter. A guess near an orbit
 that exists at another parameter only, where the search at a fixed parameter stalls, converges
 there. The step counts a change of the parameter as a change of the unknowns of the same size: a
 parameter is weighed by its scale in `family`.
 
 # Arguments
-- `family`: a function `p -> P`, the propagator at the parameter `p`, of one type for all `p`.
+- `family`: a function `(x, p) -> x`, the object `x` at the parameter `p`, of the type of `x`,
+  for each object of the search, and those of the preconditioner. An object that does not
+  depend on the parameter is returned as it is.
+- `G`: the flow of the [`Residual`](@ref), at any parameter.
+- `L`, `F`: the tangent and the right-hand side of the [`Jacobian`](@ref), at any parameter.
 - `z::ShootingVector`: the guess, overwritten with the last iterate.
 - `p::Real`: the parameter of the guess.
-- `precond=nothing`: a [`Preconditioner`](@ref) built at `z` with `family(p)`, moved with the
-  iterates, or none.
-- `column::Symbol=:forced`: `:forced` takes the column from the tangent equation forced by the
-  derivative of the right-hand side in the parameter, [`forced!`](@ref) of the propagator, one
-  integration of the seeds, for a parameter that the shifts do not depend on. `:difference`
-  takes the central difference of the residual in `p`, two integrations, whatever the parameter
-  enters.
+- `Lp=nothing`: the forced tangent, as for [`tangent_sensitivity`](@ref), which gives the column
+  of the parameter in one integration of the seeds, for a parameter that the shifts do not depend
+  on. With none, the column is the central difference of the residual in `p`, two integrations,
+  whatever the parameter enters.
+- `S=nothing`, `dS=nothing`, `dG=nothing`: those of the [`Jacobian`](@ref).
+- `precond=nothing`: a [`Preconditioner`](@ref) built at `z` with its own tangent and right-hand
+  side, moved with the iterates and the parameter, or none.
 - `tol::Real=1e-10`: the residual of a converged search.
 - `maxiter::Int=100`: the most iterations.
 - `bounds=(-Inf, Inf)`: the least and the largest parameter, both excluded. A trial step outside
   is refused.
 - `periods=(0.0, Inf)`: the same for the period, as the `bounds` of [`Residual`](@ref).
-- `ϵ::Real=1e-6`: the step of the central difference in `p`, for `column=:difference`.
+- `ϵ::Real=1e-6`: the step of the central difference in `p`, with no `Lp`.
 - `krylov_tol::Real=1e-3`: the relative residual of GMRES.
 - `krylov_dim::Int=200`: the most iterations of GMRES.
 
@@ -226,13 +262,13 @@ A named tuple with
 - `res::Float64`: the last residual.
 - `p::Float64`: the last parameter.
 """
-function freesearch!(family, z::ShootingVector, p::Real; kw...)
+function freesearch!(family, G, L, F, z::ShootingVector, p::Real; kw...)
     # ---- the parameter alone in the last row of the first system ----
     t  = _extended(z, 0.0)
     t .= 0
     t.d[end] = 1
 
-    out = _free!(family, z, p, t; kw...)
+    out = _free!(family, G, L, F, z, p, t; kw...)
 
     return (status = out.status,
             iter   = out.iter,

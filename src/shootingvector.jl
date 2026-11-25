@@ -81,8 +81,8 @@ end
 """
     shifts(z::ShootingVector) -> s
 
-All the shifts, a view of the scalars of `z`, empty for a periodic orbit: what [`shift!`](@ref)
-takes.
+All the shifts, a view of the scalars of `z`, empty for a periodic orbit: what the shift `S`
+takes, as `S(X, shifts(z))`.
 
 # Arguments
 - `z::ShootingVector`: the unknowns.

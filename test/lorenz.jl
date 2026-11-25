@@ -60,62 +60,69 @@ function advance!(rhs!, vec!, X, V, τ, dt)
     return V
 end
 
-# tangent! for a vector V of batches of perturbations of the states X, the directions of a subspace
-# step, for a propagator whose scheme pairs a state with one perturbation: each batch along a copy
-# of the states, and the last along the states themselves, which it advances
-function directions!(P, X, V::AbstractVector, τ)
+# the tangent L of a vector V of batches of perturbations of the states X, the directions of a
+# subspace step, for a tangent whose scheme pairs a state with one perturbation: each batch along a
+# copy of the states, and the last along the states themselves, which it advances
+function directions!(L, X, V::AbstractVector, τ)
     for a in eachindex(V)
-        MultipleShooting.tangent!(P, a == lastindex(V) ? X : copy(X), V[a], τ)
+        L(a == lastindex(V) ? X : copy(X), V[a], τ)
     end
 
     return V
 end
 
-struct LorenzPropagator
+# The objects of the dynamics of the Lorenz system at ρ, each a Lorenz{R} of its role R: the flow
+# :G, the tangent :L, the right-hand side :F, the tangent forced by ∂f/∂ρ :Lp, and the derivative
+# of the flow in τ :dG, each called as MultipleShooting.jl calls it, on a Batched, the columns of a
+# matrix, all the states at once, or on a Sliced, one state at a time.
+struct Lorenz{R}
     dt::Float64 # the largest time step
      ρ::Float64 # the parameter ρ
 end
 
-# the right-hand side, its linearisation, and the same forced by ∂f/∂ρ, at the ρ of P, as a flow
+# all of them at ρ, in a named tuple
+lorenz(ρ; dt=1e-3) = (G  = Lorenz{:G}(dt, ρ),
+                      L  = Lorenz{:L}(dt, ρ),
+                      F  = Lorenz{:F}(dt, ρ),
+                      Lp = Lorenz{:Lp}(dt, ρ),
+                      dG = Lorenz{:dG}(dt, ρ))
+
+# one of them at another ρ, the family of the searches with a parameter
+at(x::Lorenz{R}, ρ) where {R} = Lorenz{R}(x.dt, ρ)
+
+# the right-hand side, its linearisation, and the same forced by ∂f/∂ρ, at the ρ of x, as a flow
 # of Flows.jl calls them: the term of the vectors gets the states and their time derivative first
-_rhs(P::LorenzPropagator)    = (t, X, dX) -> lorenz_rhs!(dX, X, P.ρ)
-_lin(P::LorenzPropagator)    = (t, X, dX, V, dV) -> lorenz_lin!(dV, X, V, P.ρ)
-_forced(P::LorenzPropagator) = (t, X, dX, V, dV) -> lorenz_forced!(dV, X, V, P.ρ)
+_rhs(x::Lorenz)    = (t, X, dX) -> lorenz_rhs!(dX, X, x.ρ)
+_lin(x::Lorenz)    = (t, X, dX, V, dV) -> lorenz_lin!(dV, X, V, x.ρ)
+_forced(x::Lorenz) = (t, X, dX, V, dV) -> lorenz_forced!(dV, X, V, x.ρ)
 
 # the linearisation forced by the right-hand side over the time τ, for the derivative in τ
-_stretched(P::LorenzPropagator, τ) =
-    (t, X, dX, V, dV) -> (lorenz_lin!(dV, X, V, P.ρ); dV .+= dX ./ τ; dV)
+_stretched(x::Lorenz, τ) =
+    (t, X, dX, V, dV) -> (lorenz_lin!(dV, X, V, x.ρ); dV .+= dX ./ τ; dV)
 
 # ---- a Batched, the columns of a matrix: all the states at once ----
-MultipleShooting.propagate!(P::LorenzPropagator, X::Batched, τ::Real) =
-    (advance!(_rhs(P), X, τ, P.dt); X)
+(G::Lorenz{:G})(X::Batched, τ::Real) = advance!(_rhs(G), X, τ, G.dt)
 
-MultipleShooting.tangent!(P::LorenzPropagator, X::Batched, V::Batched, τ::Real) =
-    (advance!(_rhs(P), _lin(P), X, V, τ, P.dt); V)
+(L::Lorenz{:L})(X::Batched, V::Batched, τ::Real) = advance!(_rhs(L), _lin(L), X, V, τ, L.dt)
 
-MultipleShooting.tangent!(P::LorenzPropagator, X::Batched, V::AbstractVector{<:Batched}, τ::Real) =
-    directions!(P, X, V, τ)
+(L::Lorenz{:L})(X::Batched, V::AbstractVector{<:Batched}, τ::Real) = directions!(L, X, V, τ)
 
-MultipleShooting.forced!(P::LorenzPropagator, X::Batched, V::Batched, τ::Real) =
-    (advance!(_rhs(P), _forced(P), X, V, τ, P.dt); V)
+(Lp::Lorenz{:Lp})(X::Batched, V::Batched, τ::Real) = advance!(_rhs(Lp), _forced(Lp), X, V, τ, Lp.dt)
 
-MultipleShooting.dpropagate!(P::LorenzPropagator, X::Batched, V::Batched, τ::Real) =
-    (V .= 0; advance!(_rhs(P), _stretched(P, τ), X, V, τ, P.dt); V)
+(dG::Lorenz{:dG})(X::Batched, V::Batched, τ::Real) =
+    (V .= 0; advance!(_rhs(dG), _stretched(dG, τ), X, V, τ, dG.dt))
 
-MultipleShooting.rhs!(P::LorenzPropagator, F::Batched, X::Batched) = lorenz_rhs!(F, X, P.ρ)
+(F::Lorenz{:F})(dX::Batched, X::Batched) = lorenz_rhs!(dX, X, F.ρ)
 
 # ---- a Sliced: one state at a time ----
-MultipleShooting.propagate!(P::LorenzPropagator, X::Sliced, τ::Real) =
-    (foreach(x -> advance!(_rhs(P), x, τ, P.dt), X); X)
+(G::Lorenz{:G})(X::Sliced, τ::Real) = (foreach(x -> advance!(_rhs(G), x, τ, G.dt), X); X)
 
-MultipleShooting.tangent!(P::LorenzPropagator, X::Sliced, V::Sliced, τ::Real) =
-    (foreach((x, v) -> advance!(_rhs(P), _lin(P), x, v, τ, P.dt), X, V); V)
+(L::Lorenz{:L})(X::Sliced, V::Sliced, τ::Real) =
+    (foreach((x, v) -> advance!(_rhs(L), _lin(L), x, v, τ, L.dt), X, V); V)
 
-MultipleShooting.tangent!(P::LorenzPropagator, X::Sliced, V::AbstractVector{<:Sliced}, τ::Real) =
-    directions!(P, X, V, τ)
+(L::Lorenz{:L})(X::Sliced, V::AbstractVector{<:Sliced}, τ::Real) = directions!(L, X, V, τ)
 
-MultipleShooting.dpropagate!(P::LorenzPropagator, X::Sliced, V::Sliced, τ::Real) =
-    (foreach((x, v) -> (v .= 0; advance!(_rhs(P), _stretched(P, τ), x, v, τ, P.dt)), X, V); V)
+(dG::Lorenz{:dG})(X::Sliced, V::Sliced, τ::Real) =
+    (foreach((x, v) -> (v .= 0; advance!(_rhs(dG), _stretched(dG, τ), x, v, τ, dG.dt)), X, V); V)
 
-MultipleShooting.rhs!(P::LorenzPropagator, F::Sliced, X::Sliced) =
-    (foreach((f, x) -> lorenz_rhs!(f, x, P.ρ), F, X); F)
+(F::Lorenz{:F})(dX::Sliced, X::Sliced) = (foreach((f, x) -> lorenz_rhs!(f, x, F.ρ), dX, X); dX)

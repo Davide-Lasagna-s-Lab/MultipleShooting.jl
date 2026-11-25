@@ -8,9 +8,9 @@
 # jacobian.jl, ⟨f(u₁), v₁⟩ in time and ⟨gⱼ(u₁), v₁⟩ in space, are added to it.
 
 """
-    JacobianFD(P, z; difference=:forward, ϵ=nothing)
+    JacobianFD(G, F, z; S=nothing, dS=nothing, difference=:forward, ϵ=nothing)
 
-The Jacobian of the multiple-shooting residual of the propagator `P` at `z`, matrix free, by the
+The Jacobian of the multiple-shooting residual of the flow `G` at `z`, matrix free, by the
 finite difference `jacobianFD` of NKRoots.jl of the [`Residual`](@ref), with the phase rows of
 [`Jacobian`](@ref),
 
@@ -22,35 +22,51 @@ once, a central one twice, and the tangent equation never. `mul!(out, J, v)` or 
 `update!(J, z)` with one, for the residual.
 
 # Arguments
-- `P`: the propagator, with `propagate!` and `rhs!`, and `shift!` and `dshift!` for relative
-  periodic orbits; no `tangent!`.
+- `G`: the flow, called as `G(X, τ)`; no tangent.
+- `F`: the right-hand side, called as `F(dX, X)`, for the phase condition in time.
 - `z::ShootingVector`: the point, kept, not copied; the residual is evaluated there once.
+- `S=nothing`, `dS=nothing`: the shift and its generator, as for the [`Jacobian`](@ref), for
+  relative periodic orbits.
 - `difference::Symbol=:forward`: `:forward` or `:central`, as for `jacobianFD`.
 - `ϵ`: the relative step of `jacobianFD`, or `nothing` for its default.
 """
-mutable struct JacobianFD{PT, V<:ShootingVector, D, A, H}
-    P::PT        # the propagator
-    z::V         # the point, not a copy
-    D::D         # the finite difference of the residual, of NKRoots.jl, at z
-    f::A         # f at the seeds, for the phase condition at the first: computed at all of them,
-                 # so that the propagator sees batches of m states only
-    g::Vector{H} # the generators at the first seed, one per shift
+mutable struct JacobianFD{V<:ShootingVector, D, A, H}
+     R::Residual        # the residual, of the flow and the shift
+     F::Any             # the right-hand side
+    dS::Any             # the generator of the shift, or nothing
+     z::V               # the point, not a copy
+     D::D               # the finite difference of the residual, of NKRoots.jl, at z
+     f::A               # f at the seeds, for the phase condition at the first: computed at all of
+                        # them, so that F sees batches of m states only
+    g₁::Vector{H}       # the generators at the first seed, one per shift
 
-    function JacobianFD(P, z::ShootingVector; difference::Symbol=:forward,
-                                              ϵ::Union{Real, Nothing}=nothing)
+    function JacobianFD(         G,
+                                 F,
+                                 z::ShootingVector;
+                                 S=nothing,
+                                dS=nothing,
+                        difference::Symbol=:forward,
+                                 ϵ::Union{Real, Nothing}=nothing)
+        # ---- input checks ----
+        nshifts(z) > 0 && (S === nothing || dS === nothing) &&
+            throw(ArgumentError("a relative periodic orbit needs its shift S and its generator dS"))
+
         # ---- the difference of the residual at z, which evaluates the residual once ----
-        D = NKRoots.jacobianFD(Residual(P), z; difference=difference, ϵ=ϵ)
+        R = Residual(G; S=S)
+        D = NKRoots.jacobianFD(R, z; difference=difference, ϵ=ϵ)
 
         # ---- the storage of the phase rows, filled by update! ----
         f = similar(z.X)
         h = similar(head(z.X))
-        g = typeof(h)[similar(h) for _ in 1:nshifts(z)]
+        g₁ = typeof(h)[similar(h) for _ in 1:nshifts(z)]
 
-        J = new{typeof(P), typeof(z), typeof(D), typeof(f), typeof(h)}(P,
-                                                            z,
-                                                            D,
-                                                            f,
-                                                            g)
+        J = new{typeof(z), typeof(D), typeof(f), typeof(h)}(R,
+                                                             F,
+                                                             dS,
+                                                             z,
+                                                             D,
+                                                             f,
+                                                             g₁)
         return NKRoots.update!(J, z, D.Fx)
     end
 end
@@ -76,16 +92,16 @@ function NKRoots.update!(J::JacobianFD, z::ShootingVector, r::ShootingVector)
 
     # ---- f at all the seeds, of which the phase rows take the first, and the generators at
     #      the first seed ----
-    rhs!(J.P, J.f, z.X)
+    J.F(J.f, z.X)
     for j in 1:nshifts(z)
-        dshift!(J.P, J.g[j], head(z.X), j)
+        J.dS(J.g₁[j], head(z.X), j)
     end
 
     return J
 end
 
 NKRoots.update!(J::JacobianFD, z::ShootingVector) =
-    NKRoots.update!(J, z, Residual(J.P)(similar(z), z))
+    NKRoots.update!(J, z, J.R(similar(z), z))
 
 function LinearAlgebra.mul!(out::ShootingVector, J::JacobianFD, v::ShootingVector)
     # ---- the difference of the residual: the rows of the seeds, with the period and the shifts ----
@@ -95,7 +111,7 @@ function LinearAlgebra.mul!(out::ShootingVector, J::JacobianFD, v::ShootingVecto
     #      d₁ = ⟨f(u₁), v₁⟩,   d₁₊ⱼ = ⟨gⱼ(u₁), v₁⟩
     out.d[1] = _dot(head(J.f), head(v.X))
     for j in 1:nshifts(J.z)
-        out.d[1 + j] = _dot(J.g[j], head(v.X))
+        out.d[1 + j] = _dot(J.g₁[j], head(v.X))
     end
 
     return out

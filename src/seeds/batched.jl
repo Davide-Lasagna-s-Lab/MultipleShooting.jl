@@ -1,7 +1,7 @@
 # The seeds as an array of numbers: the methods of the functions that the package asks of the
 # seeds (interface.jl) for an array whose last dimension runs over the states, a Batched.
 #
-# What it is for. All the states sit in one array, so that the propagator advances them together,
+# What it is for. All the states sit in one array, so that the flow advances them together,
 # in one sweep over the array: the columns of a matrix for states that are vectors, an
 # N_x × N_y × m array for fields on a grid, an array on a GPU. This is the kind to use whenever
 # the states have one shape.
@@ -27,7 +27,7 @@
 Seeds that are an array of numbers of type `T` with `N` dimensions, `AbstractArray{T, N}`, the
 states along the last one: the columns of a matrix, `Batched{Float64, 2}`, the fields of a
 three-dimensional array, `Batched{ComplexF64, 3}`. `Batched` alone is any of them. The package
-gives the methods of the interface of the seeds for it, and a propagator dispatches on it, or on
+gives the methods of the interface of the seeds for it, and a flow dispatches on it, or on
 an array type of its own.
 """
 const Batched{T<:Number, N} = AbstractArray{T, N}

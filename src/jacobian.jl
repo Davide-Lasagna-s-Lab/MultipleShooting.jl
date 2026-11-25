@@ -20,58 +20,75 @@
 # before the vector is subtracted. f and the generators at the end points and at the first seed
 # are kept, and computed again by update! at a new point, which integrates the seeds once.
 #
-# The column of the period comes from dpropagate!, with the end points in the same integration: by
-# default f at the end points, the derivative of the exact flow, which differs from that of the
-# integrator by the error of the scheme; with the method of a propagator, the derivative of its
-# integrator, of which the residual is made.
+# The end points come from the tangent L, which advances the seeds with the vectors, here with no
+# perturbation, and the column of the period from the right-hand side F at the end points, the
+# derivative of the exact flow, which differs from that of the integrator by the error of the
+# scheme. The derivative of the flow dG, given, gives both, the derivative of the integrator, of
+# which the residual is made.
 
 """
-    Jacobian(P, z)
+    Jacobian(L, F, z; S=nothing, dS=nothing, dG=nothing)
 
-The Jacobian of the multiple-shooting residual of the propagator `P` at `z`, matrix free:
-`mul!(out, J, v)` or `J*v` applies it to v = (v₁, …, v_m, δT, δs₁, …, δs_c),
+The Jacobian of the multiple-shooting residual at `z`, matrix free, with the tangent `L` and the
+right-hand side `F`: `mul!(out, J, v)` or `J*v` applies it to v = (v₁, …, v_m, δT, δs₁, …, δs_c),
 
     (Jv)ᵢ₊₁ = ψᵢ vᵢ - vᵢ₊₁ + δτ ∂φ_τ(uᵢ)/∂τ,   i = 1, …, m - 1,
     (Jv)₁   = S(s) ψ_m v_m - v₁ + δτ S(s) ∂φ_τ(u_m)/∂τ + Σⱼ δsⱼ gⱼ(w),   w = S(s) φ_τ(u_m),
     (Jv)_T  = ⟨f(u₁), v₁⟩,   (Jv)_sⱼ = ⟨gⱼ(u₁), v₁⟩,
 
-with δτ = δT/m the change of the length τ = T/m of a segment, ψᵢ the
-tangent maps, by the tangent equation along the seeds, one integration per
-product, and the scalar rows the phase conditions. Building it integrates the seeds once, by
-[`dpropagate!`](@ref), which also gives the column of the period.
+with δτ = δT/m the change of the length τ = T/m of a segment, ψᵢ the tangent maps, by the tangent
+equation along the seeds, one integration per product, and the scalar rows the phase
+conditions. Building it integrates the seeds once, by the tangent with no perturbation, or by
+`dG`, which also gives the column of the period.
 
 # Arguments
-- `P`: the propagator, with `propagate!`, `tangent!` and `rhs!`, `shift!` and `dshift!` for
-  relative periodic orbits, and its own `dpropagate!` for the derivative of its integrator.
+- `L`: the tangent, called as `L(X, V, τ)` with one perturbation of every seed.
+- `F`: the right-hand side, called as `F(dX, X)`.
 - `z::ShootingVector`: the point, kept, not copied; `update!(J, z)` moves it to another.
+- `S=nothing`, `dS=nothing`: the shift, called as `S(X, s)`, and its generator, as `dS(dX, X, j)`,
+  for relative periodic orbits.
+- `dG=nothing`: the derivative of the flow in τ, called as `dG(X, V, τ)`, for the column of the
+  period of the integrator, or `nothing` for `F` at the end points.
 """
-mutable struct Jacobian{PT, V<:ShootingVector, A, H}
-         P::PT        # the propagator
-         z::V         # the point, not a copy
-       tmp::A         # work batch: the end points, then the seeds advanced with the vectors
-         F::A         # the column of the period: in row i, the derivative in T of the end of
-                      # segment i, 1/m times that in τ by dpropagate!, the last one shifted
-         G::Vector{H} # the generators at the shifted end of the last segment, one per shift
-         f::A         # f at the seeds, for the phase condition at the first: computed at all of
-                      # them, so that the propagator sees batches of m states only
-         g::Vector{H} # the generators at the first seed, one per shift
+mutable struct Jacobian{V<:ShootingVector, A, H}
+       L::Any            # the tangent
+       F::Any            # the right-hand side
+       S::Any            # the shift, or nothing for periodic orbits
+      dS::Any            # its generator, or nothing
+      dG::Any            # the derivative of the flow in τ, or nothing for F at the end points
+       z::V              # the point, not a copy
+     tmp::A              # work batch: the end points, then the seeds advanced with the vectors
+    dXdT::A              # the column of the period: in row i, the derivative in T of the end of
+                         # segment i, 1/m times that in τ, the last one shifted
+      gₘ::Vector{H}      # the generators at the shifted end of the last segment, one per shift
+       f::A              # f at the seeds, for the phase condition at the first: computed at all
+                         # of them, so that F sees batches of m states only
+      g₁::Vector{H}      # the generators at the first seed, one per shift
 
-    function Jacobian(P, z::ShootingVector)
+    function Jacobian(L, F, z::ShootingVector; S=nothing, dS=nothing, dG=nothing)
+        # ---- input checks ----
+        nshifts(z) > 0 && (S === nothing || dS === nothing) &&
+            throw(ArgumentError("a relative periodic orbit needs its shift S and its generator dS"))
+
         # ---- the storage, filled by update! ----
-        tmp = similar(z.X)
-        F = similar(z.X)
-        f = similar(z.X)
-        h = similar(head(z.X))
-        G = typeof(h)[similar(h) for _ in 1:nshifts(z)]
-        g = typeof(h)[similar(h) for _ in 1:nshifts(z)]
+        tmp  = similar(z.X)
+        dXdT = similar(z.X)
+        f    = similar(z.X)
+        h    = similar(head(z.X))
+        gₘ   = typeof(h)[similar(h) for _ in 1:nshifts(z)]
+        g₁   = typeof(h)[similar(h) for _ in 1:nshifts(z)]
 
-        J = new{typeof(P), typeof(z), typeof(F), typeof(h)}(P,
-                                                             z,
-                                                             tmp,
-                                                             F,
-                                                             G,
-                                                             f,
-                                                             g)
+        J = new{typeof(z), typeof(f), typeof(h)}(L,
+                                                 F,
+                                                 S,
+                                                 dS,
+                                                 dG,
+                                                 z,
+                                                 tmp,
+                                                 dXdT,
+                                                 gₘ,
+                                                 f,
+                                                 g₁)
         return NKRoots.update!(J, z)
     end
 end
@@ -94,25 +111,33 @@ function NKRoots.update!(J::Jacobian, z::ShootingVector)
     τ   = period(z)/m
     J.z = z
 
-    # ---- the end points, row i φ_τ(uᵢ), and their derivatives in τ, the column of the period ----
+    # ---- the end points, row i φ_τ(uᵢ), and their derivatives in τ, the column of the period:
+    #      F at the end points, from the tangent with no perturbation, or those of the
+    #      integrator, by the derivative of the flow ----
     copyto!(J.tmp, z.X)
-    dpropagate!(J.P, J.tmp, J.F, τ)
+    if J.dG === nothing
+        J.dXdT .= 0
+        J.L(J.tmp, J.dXdT, τ)
+        J.F(J.dXdT, J.tmp)
+    else
+        J.dG(J.tmp, J.dXdT, τ)
+    end
 
     # ---- each over m, since τ = T/m ----
-    J.F ./= m
+    J.dXdT ./= m
 
     # ---- the end of the last segment shifted, and its derivative with it ----
     if nshifts(z) > 0
-        shift!(J.P, tail(J.tmp), shifts(z))
-        shift!(J.P, tail(J.F), shifts(z))
+        J.S(tail(J.tmp), shifts(z))
+        J.S(tail(J.dXdT), shifts(z))
     end
 
     # ---- f and the generators at the end of the last segment, and at the first seed: f at all
     #      the seeds, of which the phase condition takes the first ----
-    rhs!(J.P, J.f, z.X)
+    J.F(J.f, z.X)
     for j in 1:nshifts(z)
-        dshift!(J.P, J.G[j], tail(J.tmp), j)
-        dshift!(J.P, J.g[j], head(z.X), j)
+        J.dS(J.gₘ[j], tail(J.tmp), j)
+        J.dS(J.g₁[j], head(z.X), j)
     end
 
     return J
@@ -132,17 +157,17 @@ function LinearAlgebra.mul!(out::ShootingVector, J::Jacobian, v::ShootingVector)
 
     # ---- advanced over their segments by the tangent equation ----
     #      outᵢ = ψᵢ vᵢ
-    tangent!(J.P, J.tmp, out.X, τ)
+    J.L(J.tmp, out.X, τ)
 
     # ---- the end of the last segment shifted ----
     #      out_m = S(s) ψ_m v_m
-    nshifts(J.z) > 0 && shift!(J.P, tail(out.X), shifts(J.z))
+    nshifts(J.z) > 0 && J.S(tail(out.X), shifts(J.z))
 
     # ---- plus the period column, and the shift columns at the end of the last segment ----
     #      outᵢ += δT Fᵢ, Fᵢ = (1/m) ∂φ_τ(uᵢ)/∂τ,   out_m += Σⱼ δsⱼ gⱼ(S(s) φ_τ(u_m))
-    out.X .+= δT .* J.F
+    out.X .+= δT .* J.dXdT
     for j in 1:nshifts(J.z)
-        tail(out.X) .+= shift(v, j) .* J.G[j]
+        tail(out.X) .+= shift(v, j) .* J.gₘ[j]
     end
 
     # ---- each row in the row of the seed it has to reach, minus the vector ----
@@ -154,7 +179,7 @@ function LinearAlgebra.mul!(out::ShootingVector, J::Jacobian, v::ShootingVector)
     #      d₁ = ⟨f(u₁), v₁⟩,   d₁₊ⱼ = ⟨gⱼ(u₁), v₁⟩
     out.d[1] = _dot(head(J.f), head(v.X))
     for j in 1:nshifts(J.z)
-        out.d[1 + j] = _dot(J.g[j], head(v.X))
+        out.d[1 + j] = _dot(J.g₁[j], head(v.X))
     end
 
     return out

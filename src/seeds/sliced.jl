@@ -1,9 +1,9 @@
 # The seeds as a vector of states: the methods of the functions that the package asks of the seeds
 # (interface.jl) for a Sliced, which holds every state in an array of its own.
 #
-# What it is for. A propagator that advances the states one at a time, each with its own number of
+# What it is for. A flow that advances the states one at a time, each with its own number of
 # steps or on its own task, or states that are not the slices of one array. The states may have
-# any shape. With states of one shape and a propagator that takes them all at once, an array, a
+# any shape. With states of one shape and a flow that takes them all at once, an array, a
 # Batched, is simpler and faster.
 #
 # Why a type, and not a plain vector of arrays. On a vector of arrays Base acts on the vector, that
@@ -14,7 +14,7 @@
 #     Y .= X         makes the states of Y those of X: in the residual, r .= z followed by the
 #                    propagation of r would overwrite the unknowns, and r - z would vanish
 #
-# and a vector of m states could not be told from the vector of the k′ directions that tangent!
+# and a vector of m states could not be told from the vector of the k′ directions that the tangent
 # takes. Sliced wraps the vector and gives each of these operations state by state, so that the
 # package uses it as it uses an array. The price is the wrapper, `Sliced(states)` going in and
 # `X[i]` or `X.states` coming out.
@@ -30,7 +30,7 @@
     Sliced(states; dot=nothing)
 
 Seeds that are a vector of states, each an array of its own, of any shape: `X[i]` is state i. The
-package gives the methods of the interface of the seeds for it, and a propagator dispatches on it
+package gives the methods of the interface of the seeds for it, and a flow dispatches on it
 to advance the states one at a time. It keeps `states`, not copied, and it broadcasts state by
 state: in an expression every `Sliced` stands for its state i, and every vector of coefficients,
 one per state, for its entry i.

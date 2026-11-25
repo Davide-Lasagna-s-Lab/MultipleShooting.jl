@@ -1,10 +1,10 @@
-# The Kuramoto–Sivashinsky equation u_t = -u u_x - u_xx - u_xxxx on [0, L) with periodic boundary
+# The Kuramoto–Sivashinsky equation u_t = -u u_x - u_xx - u_xxxx on [0, ℓ) with periodic boundary
 # conditions, in the full space with its continuous translation symmetry, advanced by Flows.jl.
 #
 # A state is the Fourier coefficients û_k of the modes kept, k = 1, …, K, with K the last below
 # N/3 for products on a grid of N points,
 #
-#     u(x) = Σ_{0 < |k| ≤ K} û_k e^{iκx},   κ = 2πk/L,   û_{-k} = conj(û_k),
+#     u(x) = Σ_{0 < |k| ≤ K} û_k e^{iκx},   κ = 2πk/ℓ,   û_{-k} = conj(û_k),
 #
 # and a batch is a K × m complex matrix with one state per column. The mean, which the flow
 # conserves, is zero, and the modes that the quadratic term would alias are left out, so that the
@@ -19,25 +19,38 @@
 using FFTW
 import Flows
 
-struct KSPropagator
-     L::Float64            # the length of the domain
+# The objects of the dynamics on the domain of length ℓ, each a KS{R} of its role R, as Lorenz{R}
+# of lorenz.jl: the flow :G, the tangent :L, the right-hand side :F, the shift :S and its
+# generator :dS
+struct KS{R}
+     ℓ::Float64            # the length of the domain
     dt::Float64            # the largest time step
      N::Int                # the points of the grid of the products
-     κ::Vector{Float64}    # the wavenumbers of the modes kept, 2πk/L for 1 ≤ k < N/3
+     κ::Vector{Float64}    # the wavenumbers of the modes kept, 2πk/ℓ for 1 ≤ k < N/3
 
-    KSPropagator(; L::Real=22.0, N::Int=64, dt::Real=0.05) =
-        new(L,
-            dt,
-            N,
-            [2π*k/L for k in 1:N÷2 if k < N/3])
+    KS{R}(; ℓ::Real=22.0, N::Int=64, dt::Real=0.05) where {R} =
+        new{R}(ℓ,
+               dt,
+               N,
+               [2π*k/ℓ for k in 1:N÷2 if k < N/3])
 end
+
+# all of them, in a named tuple
+ks(; kw...) = (G  = KS{:G}(; kw...),
+               L  = KS{:L}(; kw...),
+               F  = KS{:F}(; kw...),
+               S  = KS{:S}(; kw...),
+               dS = KS{:dS}(; kw...))
+
+# one of them on a domain of another length, the family of the searches with a parameter
+at(x::KS{R}, ℓ) where {R} = KS{R}(; ℓ=ℓ, N=x.N, dt=x.dt)
 
 # the linear part of the equation, Λ = κ² - κ⁴ on every mode, as the implicit term of Flows.jl
 struct KSLinear
     Λ::Vector{Float64}     # κ² - κ⁴, mode by mode
 end
 
-KSLinear(P::KSPropagator) = KSLinear(P.κ.^2 .- P.κ.^4)
+KSLinear(P::KS) = KSLinear(P.κ.^2 .- P.κ.^4)
 
 LinearAlgebra.mul!(out, A::KSLinear, X)         = (out .= A.Λ .* X; out)
 Flows.ImcA!(A::KSLinear, c::Real, Y, Z)         = (Z .= Y ./ (1 .- c .* A.Λ); Z)
@@ -47,7 +60,7 @@ Flows.ImcA!(A::KSLinear, c::Real, Y, Z)         = (Z .= Y ./ (1 .- c .* A.Λ); Z
 #
 #     nonlinear!(t, û, dû)            dû = -(iκ/2) (u²)^
 #     linearised!(t, û, dû, v̂, dv̂)    dv̂ = -iκ (u v)^
-function ks_terms(P::KSPropagator, X::AbstractMatrix)
+function ks_terms(P::KS, X::AbstractMatrix)
     K, m = size(X)
 
     # ---- the half spectrum of the grid, two fields on it, and the transforms ----
@@ -80,9 +93,9 @@ function ks_terms(P::KSPropagator, X::AbstractMatrix)
 end
 
 # the equal steps over τ, of at most dt
-ks_steps(P::KSPropagator, τ) = Flows.TimeStepConstant(τ/max(1, ceil(Int, τ/P.dt)))
+ks_steps(P::KS, τ) = Flows.TimeStepConstant(τ/max(1, ceil(Int, τ/P.dt)))
 
-function MultipleShooting.propagate!(P::KSPropagator, X::Batched, τ::Real)
+function (P::KS{:G})(X::Batched, τ::Real)
     # ---- the flow works on a copy, of the type of its registers: X may be a view ----
     Y    = copy(X)
     N!,  = ks_terms(P, Y)
@@ -93,7 +106,7 @@ function MultipleShooting.propagate!(P::KSPropagator, X::Batched, τ::Real)
     return X
 end
 
-function MultipleShooting.tangent!(P::KSPropagator, X::Batched, V::Batched, τ::Real)
+function (P::KS{:L})(X::Batched, V::Batched, τ::Real)
     # ---- the states and the vectors as one coupled state, on copies ----
     Z      = Flows.couple(copy(X), copy(V))
     N!, L! = ks_terms(P, Z[1])
@@ -106,10 +119,9 @@ function MultipleShooting.tangent!(P::KSPropagator, X::Batched, V::Batched, τ::
     return V
 end
 
-MultipleShooting.tangent!(P::KSPropagator, X::Batched, V::AbstractVector{<:Batched}, τ::Real) =
-    directions!(P, X, V, τ)
+(P::KS{:L})(X::Batched, V::AbstractVector{<:Batched}, τ::Real) = directions!(P, X, V, τ)
 
-function MultipleShooting.rhs!(P::KSPropagator, F::Batched, X::Batched)
+function (P::KS{:F})(F::Batched, X::Batched)
     # ---- Λ û + N(û) ----
     N!, = ks_terms(P, X)
     N!(0.0, X, F)
@@ -119,8 +131,7 @@ function MultipleShooting.rhs!(P::KSPropagator, F::Batched, X::Batched)
 end
 
 # û_k e^{iκ s}, the one shift s[1]
-MultipleShooting.shift!(P::KSPropagator, X::Batched, s) = (X .*= cis.(P.κ .* s[1]); X)
+(P::KS{:S})(X::Batched, s) = (X .*= cis.(P.κ .* s[1]); X)
 
 # the generator ∂ₓ, iκ û_k
-MultipleShooting.dshift!(P::KSPropagator, G::Batched, X::Batched, j::Int) =
-    (G .= im .* P.κ .* X; G)
+(P::KS{:dS})(G::Batched, X::Batched, j::Int) = (G .= im .* P.κ .* X; G)

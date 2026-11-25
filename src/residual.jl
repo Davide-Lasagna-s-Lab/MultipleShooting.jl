@@ -19,9 +19,9 @@
 # is always out of bounds.
 
 """
-    Residual(P; bounds=(0.0, Inf))
+    Residual(G; S=nothing, bounds=(0.0, Inf))
 
-The multiple-shooting residual of the propagator `P`, called as `F(r, z)`, as `nkroot!` of
+The multiple-shooting residual of the flow `G`, called as `R(r, z)`, as `nkroot!` of
 NKRoots.jl calls it. In the row of segment i + 1 it holds the end of segment i minus the seed of
 segment i + 1, and in row 1 the end of the last segment, shifted by the shifts of `z`, minus the
 first seed,
@@ -32,24 +32,33 @@ and its scalar part is zero. One integration of the seeds per call. Where the pe
 not within `bounds` the residual is infinite, with no integration.
 
 # Arguments
-- `P`: the propagator, with `propagate!`, and `shift!` for relative periodic orbits.
+- `G`: the flow, called as `G(X, τ)`.
+- `S=nothing`: the shift, called as `S(X, s)`, for relative periodic orbits.
 - `bounds::NTuple{2, Real}=(0.0, Inf)`: the least and the largest period, both excluded, as `(0.5T, 2T)` for a
   guess of period `T`. The default refuses the periods that are not positive.
 
-Called as `F(r, z)`, with
+Called as `R(r, z)`, with
 - `r::ShootingVector`: overwritten with the residual;
 - `z::ShootingVector`: the unknowns, not changed.
 """
-struct Residual{PT}
-         P::PT                      # the propagator
-    bounds::Tuple{Float64, Float64} # the periods outside which the residual is infinite
+struct Residual{GT, ST}
+         G::GT                          # the flow
+         S::ST                          # the shift, or nothing for periodic orbits
+    bounds::Tuple{Float64, Float64}     # the periods outside which the residual is infinite
 
-    Residual(P; bounds::NTuple{2, Real}=(0.0, Inf)) = new{typeof(P)}(P, bounds)
+    Residual(G; S=nothing, bounds::NTuple{2, Real}=(0.0, Inf)) =
+        new{typeof(G), typeof(S)}(G,
+                                  S,
+                                  bounds)
 end
 
-function (F::Residual)(r::ShootingVector, z::ShootingVector)
+function (R::Residual)(r::ShootingVector, z::ShootingVector)
+    # ---- input checks ----
+    nshifts(z) > 0 && R.S === nothing &&
+        throw(ArgumentError("a relative periodic orbit needs its shift S"))
+
     # ---- a period out of bounds: an infinite residual ----
-    F.bounds[1] < period(z) < F.bounds[2] || return r .= Inf
+    R.bounds[1] < period(z) < R.bounds[2] || return r .= Inf
 
     # ---- the length of a segment, the same for all ----
     #      τ = T/m
@@ -61,11 +70,11 @@ function (F::Residual)(r::ShootingVector, z::ShootingVector)
 
     # ---- advanced over their segments ----
     #      rᵢ = φ_τ(uᵢ)
-    propagate!(F.P, r.X, τ)
+    R.G(r.X, τ)
 
     # ---- the end of the last segment shifted ----
     #      r_m = S(s) φ_τ(u_m)
-    nshifts(z) > 0 && shift!(F.P, tail(r.X), shifts(z))
+    nshifts(z) > 0 && R.S(tail(r.X), shifts(z))
 
     # ---- each end point in the row of the seed it has to reach ----
     #      rᵢ₊₁ = φ_τ(uᵢ),   r₁ = S(s) φ_τ(u_m)

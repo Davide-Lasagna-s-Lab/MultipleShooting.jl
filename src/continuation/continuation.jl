@@ -1,6 +1,6 @@
 # Continuation of an orbit in a parameter of the equation.
 #
-# An orbit of the propagator family(p) lies on a branch, a curve in the unknowns and the parameter
+# An orbit at the parameter p lies on a branch, a curve in the unknowns and the parameter
 # together, x = (z, p). From a point of the branch with its unit tangent t, the next point is the
 # predictor x + h t, a step of length h along the tangent, brought back to the branch by the
 # search with the parameter free of parameter.jl, which lands on the branch near the predictor and
@@ -20,18 +20,18 @@ const _EASY      = 3   # iterations of a search up to which the next step grows
 const _CLOSE     = 20  # steps tried at most to close in on an event
 
 """
-    continuation!(family, z, p; sense=1, target=nothing, step=0.05, longest=2.0,
+    continuation!(family, G, L, F, z, p; sense=1, target=nothing, step=0.05, longest=2.0,
                   shortest=1e-4, points=100, kw...) -> (; status, p, path)
 
-Follow the branch of the orbit `z` of the propagator `family(p)` as the parameter changes, by
+Follow the branch of the orbit `z` at the parameter `p` as the parameter changes, by
 steps along its tangent, each corrected by the search of [`freesearch!`](@ref). With a `target`
 the continuation ends on the orbit at that parameter, through the folds of the branch if any.
 With none it ends at the first fold, where the parameter turns and the Jacobian is singular. The
 length of a step is that of the change of `(z, p)`.
 
 # Arguments
-- `family`: a function `p -> P`, the propagator at the parameter `p`, of one type for all `p`.
-- `z::ShootingVector`: an orbit of `family(p)`, overwritten with the last point.
+- `family`, `G`, `L`, `F`: those of [`freesearch!`](@ref).
+- `z::ShootingVector`: an orbit at the parameter `p`, overwritten with the last point.
 - `p::Real`: its parameter.
 - `sense::Int=1`: `1` for a parameter that grows at the start, `-1` for one that shrinks.
 - `target=nothing`: the parameter at which the continuation ends, or `nothing` to end at the
@@ -40,10 +40,11 @@ length of a step is that of the change of `(z, p)`.
 - `longest::Real=2.0`: the longest step.
 - `shortest::Real=1e-4`: the step below which the continuation gives up.
 - `points::Int=100`: the most points, the first one included.
-- `residual=nothing`: a function `(r, z, p) -> r` in place of the residual of `family(p)`, for a
-  parameter that is not in the propagator, whose column is then the central difference. With
-  `F = Residual(P)` and `F₀` its value at a guess, `(r, z, a) -> (F(r, z); r .-= a .* F₀)` and
-  `family = a -> P` follow the Newton homotopy `F(z) - a F₀ = 0` from `a = 1` to the `target` 0.
+- `residual=nothing`: a function `(r, z, p) -> r` in place of the residual of the flow at `p`, for
+  a parameter that is not in the dynamics, whose column is then the central difference. With
+  `R = Residual(G)` and `R₀` its value at a guess, `(r, z, a) -> (R(r, z); r .-= a .* R₀)` and
+  `family = (x, a) -> x` follow the Newton homotopy `R(z) - a R₀ = 0` from `a = 1` to the
+  `target` 0.
 - `kw...`: the other keywords of [`freesearch!`](@ref), but `maxiter`.
 
 # Returns
@@ -54,13 +55,19 @@ A named tuple with
 - `path`: the points, as the vectors `p`, the parameter, `period`, and `slope`, the part of the
   unit tangent in the parameter.
 """
-function continuation!(family, z::ShootingVector, p::Real;    sense::Int=1,
-                                                             target=nothing,
-                                                               step::Real=0.05,
-                                                            longest::Real=2.0,
-                                                           shortest::Real=1e-4,
-                                                             points::Int=100,
-                                                           kw...)
+function continuation!(  family,
+                              G,
+                              L,
+                              F,
+                              z::ShootingVector,
+                              p::Real;
+                          sense::Int=1,
+                         target=nothing,
+                           step::Real=0.05,
+                        longest::Real=2.0,
+                       shortest::Real=1e-4,
+                         points::Int=100,
+                                kw...)
     # ---- input checks ----
     sense in (1, -1) ||
         throw(ArgumentError("sense must be 1 or -1"))
@@ -69,7 +76,7 @@ function continuation!(family, z::ShootingVector, p::Real;    sense::Int=1,
     t  = _extended(z, 0.0)
     t .= 0
     t.d[end] = sense
-    out    = _free!(family, z, p, t; kw...)
+    out    = _free!(family, G, L, F, z, p, t; kw...)
     p      = out.p
     t      = out.tangent
     h      = float(step)
@@ -91,7 +98,7 @@ function continuation!(family, z::ShootingVector, p::Real;    sense::Int=1,
         zn  = copy(z)
         zn .= z .+ h .* _unknowns(t)
         o   = try
-            _free!(family, zn, p + h*t.d[end], t; kw..., maxiter=_CORRECTOR)
+            _free!(family, G, L, F, zn, p + h*t.d[end], t; kw..., maxiter=_CORRECTOR)
         catch e
             e isa ErrorException ||
                 rethrow()

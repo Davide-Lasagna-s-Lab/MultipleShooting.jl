@@ -30,29 +30,36 @@ function cycle_lin!(dV::AbstractMatrix, X::AbstractMatrix, V::AbstractMatrix, μ
     return dV
 end
 
-struct CyclePropagator
+# The objects of the dynamics at μ, each a Cycle{R} of its role R, as Lorenz{R} of lorenz.jl: the
+# flow :G, the tangent :L, the right-hand side :F, and the tangent forced by ∂f/∂μ = (x, y) :Lp
+struct Cycle{R}
     dt::Float64 # the largest time step
      μ::Float64 # the parameter μ
 end
 
-# the right-hand side and its linearisation at the μ of P, as a flow of Flows.jl calls them
-_rhs(P::CyclePropagator) = (t, X, dX) -> cycle_rhs!(dX, X, P.μ)
-_lin(P::CyclePropagator) = (t, X, dX, V, dV) -> cycle_lin!(dV, X, V, P.μ)
+# all of them at μ, in a named tuple
+cycles(μ; dt=1e-2) = (G  = Cycle{:G}(dt, μ),
+                      L  = Cycle{:L}(dt, μ),
+                      F  = Cycle{:F}(dt, μ),
+                      Lp = Cycle{:Lp}(dt, μ))
 
-MultipleShooting.propagate!(P::CyclePropagator, X::Batched, τ::Real) =
-    advance!(_rhs(P), X, τ, P.dt)
+# one of them at another μ, the family of the searches with a parameter
+at(x::Cycle{R}, μ) where {R} = Cycle{R}(x.dt, μ)
 
-MultipleShooting.tangent!(P::CyclePropagator, X::Batched, V::Batched, τ::Real) =
-    advance!(_rhs(P), _lin(P), X, V, τ, P.dt)
+# the right-hand side and its linearisation at the μ of x, as a flow of Flows.jl calls them
+_rhs(x::Cycle) = (t, X, dX) -> cycle_rhs!(dX, X, x.μ)
+_lin(x::Cycle) = (t, X, dX, V, dV) -> cycle_lin!(dV, X, V, x.μ)
 
-MultipleShooting.tangent!(P::CyclePropagator, X::Batched, V::AbstractVector{<:Batched}, τ::Real) =
-    directions!(P, X, V, τ)
+(G::Cycle{:G})(X::Batched, τ::Real) = advance!(_rhs(G), X, τ, G.dt)
 
-# the tangent equation forced by the derivative of the right-hand side in μ, ∂f/∂μ = (x, y)
-MultipleShooting.forced!(P::CyclePropagator, X::Batched, V::Batched, τ::Real) =
-    advance!(_rhs(P), (t, Y, dY, W, dW) -> (cycle_lin!(dW, Y, W, P.μ); dW .+= Y; dW), X, V, τ, P.dt)
+(L::Cycle{:L})(X::Batched, V::Batched, τ::Real) = advance!(_rhs(L), _lin(L), X, V, τ, L.dt)
 
-MultipleShooting.rhs!(P::CyclePropagator, F::Batched, X::Batched) = cycle_rhs!(F, X, P.μ)
+(L::Cycle{:L})(X::Batched, V::AbstractVector{<:Batched}, τ::Real) = directions!(L, X, V, τ)
+
+(Lp::Cycle{:Lp})(X::Batched, V::Batched, τ::Real) =
+    advance!(_rhs(Lp), (t, Y, dY, W, dW) -> (cycle_lin!(dW, Y, W, Lp.μ); dW .+= Y; dW), X, V, τ, Lp.dt)
+
+(F::Cycle{:F})(dX::Batched, X::Batched) = cycle_rhs!(dX, X, F.μ)
 
 # the circle of squared radius r² as four seeds a quarter of a turn apart, with the period 2π
 circle(r²) = ShootingVector(sqrt(r²) .* [1.0 0.0 -1.0 0.0; 0.0 1.0 0.0 -1.0], [2π])

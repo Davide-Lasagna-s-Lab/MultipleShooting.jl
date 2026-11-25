@@ -1,5 +1,5 @@
 # Multiple shooting for periodic orbits, matrix free: the unknowns, the residual and the product of
-# its Jacobian with a vector, on top of a propagator that advances batches of states.
+# its Jacobian with a vector, on top of a flow and its tangent that advance batches of states.
 module MultipleShooting
 
 import LinearAlgebra
@@ -7,14 +7,7 @@ import NKRoots
 import Random
 import SparseArrays
 
-export propagate!,
-       rhs!,
-       tangent!,
-       forced!,
-       shift!,
-       dshift!,
-       dpropagate!,
-       nsegments,
+export nsegments,
        states,
        head,
        tail,
