@@ -130,8 +130,8 @@ function (P::KS{:F})(F::Batched, X::Batched)
     return F
 end
 
-# û_k e^{iκ s}, the one shift s[1]
-(P::KS{:S})(X::Batched, s) = (X .*= cis.(P.κ .* s[1]); X)
+# û_k e^{iκ s}, the one shift s
+(P::KS{:S})(X::Batched, s::Real) = (X .*= cis.(P.κ .* s); X)
 
 # the generator ∂ₓ, iκ û_k
 (P::KS{:dS})(G::Batched, X::Batched, j::Int) = (G .= im .* P.κ .* X; G)

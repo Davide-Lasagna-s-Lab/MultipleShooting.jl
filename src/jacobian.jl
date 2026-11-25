@@ -45,7 +45,7 @@ conditions. Building it integrates the seeds once, by the tangent with no pertur
 - `L`: the tangent, called as `L(X, V, τ)` with one perturbation of every seed.
 - `F`: the right-hand side, called as `F(dX, X)`.
 - `z::ShootingVector`: the point, kept, not copied; `update!(J, z)` moves it to another.
-- `S=nothing`, `dS=nothing`: the shift, called as `S(X, s)`, and its generator, as `dS(dX, X, j)`,
+- `S=nothing`, `dS=nothing`: the shift, called as `S(X, s...)`, and its generator, as `dS(dX, X, j)`,
   for relative periodic orbits.
 - `dG=nothing`: the derivative of the flow in τ, called as `dG(X, V, τ)`, for the column of the
   period of the integrator, or `nothing` for `F` at the end points.
@@ -135,8 +135,8 @@ function NKRoots.update!(J::Jacobian, z::ShootingVector)
 
     # ---- the end of the last segment shifted, and its derivative with it ----
     if nshifts(z) > 0
-        J.S(tail(J.tmp), shifts(z))
-        J.S(tail(J.dXdT), shifts(z))
+        J.S(tail(J.tmp), shifts(z)...)
+        J.S(tail(J.dXdT), shifts(z)...)
     end
 
     # ---- f and the generators at the end of the last segment, and at the first seed: f at all
@@ -168,7 +168,7 @@ function LinearAlgebra.mul!(out::ShootingVector, J::Jacobian, v::ShootingVector)
 
     # ---- the end of the last segment shifted ----
     #      out_m = S(s) ψ_m v_m
-    nshifts(J.z) > 0 && J.S(tail(out.X), shifts(J.z))
+    nshifts(J.z) > 0 && J.S(tail(out.X), shifts(J.z)...)
 
     # ---- plus the period column, and the shift columns at the end of the last segment ----
     #      outᵢ += δT Fᵢ, Fᵢ = (1/m) ∂φ_τ(uᵢ)/∂τ,   out_m += Σⱼ δsⱼ gⱼ(S(s) φ_τ(u_m))

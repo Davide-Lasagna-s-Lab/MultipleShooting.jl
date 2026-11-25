@@ -27,7 +27,8 @@
 #     L(X, V, τ)       the tangent: the states of X advanced, and those of V by the tangent
 #                      equation along them, in place; V like X, or a vector of k′ of them
 #     F(dX, X)         the right-hand side: f at every state of X, written into dX
-#     S(X, s)          the shift: every state of X shifted by the shifts s, in place
+#     S(X, s...)       the shift: every state of X shifted by the shifts s₁, …, s_c, in place,
+#                      by one number s for one symmetry
 #     dS(dX, X, j)     the generator of shift j at every state of X, written into dX
 #     Lp(X, V, τ)      the forced tangent: as L, with the tangent equation forced by ∂f/∂p
 #     dG(X, V, τ)      the derivative of the flow in τ: X advanced, and V the derivative in τ of

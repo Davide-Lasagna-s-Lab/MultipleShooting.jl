@@ -109,7 +109,7 @@ to `z` and makes steps there until the turn passes the test.
 - `L`: the tangent, called as `L(X, V, τ)` with a vector `V` of `k′` perturbations of every seed.
 - `z::ShootingVector`: the point, kept, not copied.
 - `k′::Int`: the number of directions of each basis, at least 1, required.
-- `S=nothing`: the shift, called as `S(X, s)`, for relative periodic orbits.
+- `S=nothing`: the shift, called as `S(X, s...)`, for relative periodic orbits.
 """
 mutable struct Subspace{LT, ST, ZT<:ShootingVector, A}
            L::LT                   # the tangent
@@ -204,7 +204,7 @@ function iterate!(S::Subspace)
     #      of the last segment, shifted, to point 1 ----
     #      V[k₁] = (S(s) ψ_m v_m^(k₁), ψ₁ v₁^(k₁), …, ψ_{m-1} v_{m-1}^(k₁))
     for k₁ in 1:k′
-        nshifts(z) > 0 && S.S(tail(S.V[k₁]), shifts(z))
+        nshifts(z) > 0 && S.S(tail(S.V[k₁]), shifts(z)...)
         roll_forward!(S.V[k₁])
     end
 

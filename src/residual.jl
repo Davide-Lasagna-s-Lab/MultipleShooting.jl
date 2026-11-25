@@ -33,7 +33,7 @@ not within `bounds` the residual is infinite, with no integration.
 
 # Arguments
 - `G`: the flow, called as `G(X, τ)`.
-- `S=nothing`: the shift, called as `S(X, s)`, for relative periodic orbits.
+- `S=nothing`: the shift, called as `S(X, s...)`, for relative periodic orbits.
 - `bounds::NTuple{2, Real}=(0.0, Inf)`: the least and the largest period, both excluded, as `(0.5T, 2T)` for a
   guess of period `T`. The default refuses the periods that are not positive.
 
@@ -74,7 +74,7 @@ function (R::Residual)(r::ShootingVector, z::ShootingVector)
 
     # ---- the end of the last segment shifted ----
     #      r_m = S(s) φ_τ(u_m)
-    nshifts(z) > 0 && R.S(tail(r.X), shifts(z))
+    nshifts(z) > 0 && R.S(tail(r.X), shifts(z)...)
 
     # ---- each end point in the row of the seed it has to reach ----
     #      rᵢ₊₁ = φ_τ(uᵢ),   r₁ = S(s) φ_τ(u_m)
