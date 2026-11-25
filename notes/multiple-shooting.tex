@@ -184,6 +184,11 @@ figure~\ref{fig:batches}. In the batched layout it is one array of numbers whose
 runs over the states, such as an $n \times m$ matrix for vectors or an $N_x \times N_y \times m$
 array for fields on a grid. In the sliced layout it is a vector of $m$ arrays, one per state, of
 any shape. The code dispatches on the two, under the names \code{Batched} and \code{Sliced}.
+Both are an \code{AbstractSeeds\{M, K\}}, which wraps the array and holds $K$ states at each of
+$M$ seeds, in $K$ blocks of $M$: $K = 1$ for the seeds, and $K = k$ for the $k$ directions of a
+subspace step packed together, so that the sizes are in the types. \code{Seeds} wraps any array;
+a package gives its own subtype for its states, with \code{parent}, \code{rewrap} and the inner
+product \code{dots}.
 
 \begin{figure}
   \centering

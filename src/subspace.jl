@@ -97,10 +97,10 @@ mutable struct Subspace{PT, ZT<:MultiVector, A, B}
         # ---- random orthonormal bases ----
         X = z.X
         V = [_randn!(_similar(X)) for _ in 1:k′]
-        _orthonormalise!(V, z.dots)
+        _orthonormalise!(V)
 
         # ---- the packed batch of a step, m k′ states ----
-        Vk′ = _similar(X, k′*m)
+        Vk′ = _similar(X, m, k′)
 
         return new{typeof(P), typeof(z), typeof(X), typeof(Vk′)}(P,
                                                                  z,
@@ -139,7 +139,6 @@ directions advance together, as one batch of m k′ states along the shooting po
 function iterate!(S::Subspace)
     z  = S.z
     k′ = length(S.V)
-    m  = nsegments(z)
 
     # ---- the bases before the step ----
     #      Vᵢ^(r-1), kept in U
@@ -150,7 +149,7 @@ function iterate!(S::Subspace)
     # ---- the step: the k′ directions packed into one batch, block a along the points ----
     #      V = (v₁¹, …, v_m¹, v₁², …, v_m², …)
     for a in 1:k′
-        _copyto!(_block(S.Vk′, a, m), S.V[a])
+        _copyto!(_block(S.Vk′, a), S.V[a])
     end
 
     # ---- the step: the batch advanced over the segments along the shooting points, which
@@ -162,22 +161,22 @@ function iterate!(S::Subspace)
     # ---- the step: each image back in its batch, at the point it reaches, the last shifted ----
     #      ψᵢ vᵢᵃ at point i + 1,   S(s) ψ_m v_mᵃ at point 1
     for a in 1:k′
-        _copyto!(S.V[a], _block(S.Vk′, a, m))
+        _copyto!(S.V[a], _block(S.Vk′, a))
         nshifts(z) > 0 && shift!(S.P, _tail(S.V[a]), _shifts(z))
         _roll!(S.V[a])
     end
 
     # ---- the Galerkin blocks of the bases before the step, from the images ----
     #      Eᵢ = Vᵢ₊₁^(r-1)ᵀ ψᵢ Vᵢ^(r-1)
-    _galerkin!(S.E, S.U, S.V, z.dots)
+    _galerkin!(S.E, S.U, S.V)
 
     # ---- the step: the QR factorisation of the images at every point ----
     #      ψᵢ Vᵢ^(r-1) = Vᵢ₊₁^(r) Rᵢ^(r)
-    _orthonormalise!(S.V, z.dots)
+    _orthonormalise!(S.V)
 
     # ---- the turn and its singular values ----
     #      Zᵢ = Vᵢ^(r) - Vᵢ^(r-1) (Vᵢ^(r-1)ᵀ Vᵢ^(r)),   σⱼ(Zᵢ) = sin ϑⱼ,ᵢ
-    _turn!(S.Z, S.σ, S.U, S.V, z.dots)
+    _turn!(S.Z, S.σ, S.U, S.V)
 
     return S
 end
@@ -282,7 +281,7 @@ end
 #     Eᵢ = Uᵢ₊₁ᵀ ψᵢ Uᵢ,   E_m = U₁ᵀ S(s) ψ_m U_m,
 #
 # one inner product per point for every pair of directions, from dots, brought to the host
-function _galerkin!(E::Array{Float64, 3}, U::Vector, V::Vector, dots)
+function _galerkin!(E::Array{Float64, 3}, U::Vector, V::Vector)
     k′ = length(U)
 
     for a in 1:k′, b in 1:k′
@@ -308,7 +307,7 @@ end
 # Z. That factor is backward stable however far Qᵢ is from orthogonal, so that the small sines are
 # resolved down to eps times the largest, where the eigenvalues of ZᵢᵀZᵢ would square them and lose
 # them below √eps times the largest. The sines are capped at 1, against rounding
-function _turn!(Z::Vector, σ::Matrix{Float64}, U::Vector, V::Vector, dots)
+function _turn!(Z::Vector, σ::Matrix{Float64}, U::Vector, V::Vector)
     k′ = length(V)
     m  = size(σ, 2)
 
@@ -327,7 +326,7 @@ function _turn!(Z::Vector, σ::Matrix{Float64}, U::Vector, V::Vector, dots)
 
     # ---- its singular values, those of its triangular factor, in increasing order ----
     #      Zᵢ = Qᵢ Tᵢ,   σⱼ(Zᵢ) = σⱼ(Tᵢ) = sin ϑⱼ,ᵢ
-    T = _gram_schmidt!(Z, dots)
+    T = _gram_schmidt!(Z)
     for i in 1:m
         σ[:, i] .= sort(min.(LinearAlgebra.svdvals(T[:, :, i]), 1.0))
     end
@@ -338,9 +337,9 @@ end
 # The QR factorisation of a step, the images V overwritten with the new bases: two passes of
 # modified Gram–Schmidt, the second for orthogonality to rounding. The triangular factor Rᵢ^(r) is
 # not needed
-function _orthonormalise!(V::Vector, dots)
+function _orthonormalise!(V::Vector)
     for _ in 1:2
-        _gram_schmidt!(V, dots)
+        _gram_schmidt!(V)
     end
 
     return V
@@ -351,7 +350,7 @@ end
 # and the triangular factor returned, Vᵢ = Qᵢ Rᵢ, k′ × k′ × m on the host. The coefficients are one
 # per point, from the inner product dots of the states, and broadcast against the batches in both
 # layouts. A column that vanishes at a point stays zero there, with a zero on the diagonal of R
-function _gram_schmidt!(V::Vector, dots)
+function _gram_schmidt!(V::Vector)
     k′ = length(V)
     m  = nsegments(first(V))
     R  = zeros(k′, k′, m)

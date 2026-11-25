@@ -15,12 +15,12 @@ include(joinpath(@__DIR__, "data", "ks22.jl"))
 #      after a transient of 20, sampled every 0.01: a distance of 0.42 at T = 1.57 ----
 L     = LorenzPropagator(1e-3, 28.0)
 F     = Residual(L)
-guess = MultiVector([-4.3916429753   4.5595009656   3.6883670592  -3.8671374687;
+guess = MultiVector(Seeds([-4.3916429753   4.5595009656   3.6883670592  -3.8671374687;
                       2.1325664921   7.9944849552  -1.9178392035  -6.9073223838;
-                     30.6127436095  12.6485708665  29.3130502493  11.6370396562], [1.57])
+                     30.6127436095  12.6485708665  29.3130502493  11.6370396562]), [1.57])
 
 # the same vector in the sliced layout, a vector of states
-sliced(z) = MultiVector(collect.(eachcol(z.X)), copy(z.d))
+sliced(z) = MultiVector(Seeds(collect.(eachcol(z.X))), copy(z.d))
 
 # the search from z, overwritten with the orbit
 search!(z) = nkroot!(F, Jacobian(L, z), z; krylov_dim=20, krylov_tol=1e-8, Δ=1.0, tol=1e-10,
@@ -42,8 +42,8 @@ ks_search!(z) = nkroot!(Residual(K), Jacobian(K, z), z; krylov_dim=60, krylov_to
     flat(v)   = [vec(v.X isa Sliced ? reduce(hcat, v.X) : v.X); v.d]
 
     # ---- the same vectors in both layouts: the columns of a matrix, or a vector of states ----
-    for (z, w) in ((MultiVector(copy(A), [1.5]), MultiVector(copy(B), [-0.5])),
-                   (MultiVector(slice(A), [1.5]), MultiVector(slice(B), [-0.5])))
+    for (z, w) in ((MultiVector(Seeds(copy(A)), [1.5]), MultiVector(Seeds(copy(B)), [-0.5])),
+                   (MultiVector(Seeds(slice(A)), [1.5]), MultiVector(Seeds(slice(B)), [-0.5])))
         @test nsegments(z) == 3
         @test period(z) == 1.5
         @test nshifts(z) == 0
@@ -72,13 +72,21 @@ ks_search!(z) = nkroot!(Residual(K), Jacobian(K, z), z; krylov_dim=60, krylov_to
     end
 
     # ---- a relative periodic orbit: the period, then the shifts ----
-    z = MultiVector(randn(4, 3), [1.5, 0.2, -0.7])
+    z = MultiVector(Seeds(randn(4, 3)), [1.5, 0.2, -0.7])
     @test period(z) == 1.5
     @test nshifts(z) == 2
     @test shift(z, 1) == 0.2
     @test shift(z, 2) == -0.7
     @test_throws BoundsError shift(z, 0)
     @test_throws BoundsError shift(z, 3)
+
+    # ---- the sizes in the types: M seeds and K blocks, and the unknowns only of seeds ----
+    V = Seeds(randn(4, 6); k=2)
+    @test V isa AbstractSeeds{3, 2}
+    @test nsegments(V) == 3
+    @test parent(MultipleShooting._block(V, 2)) == parent(V)[:, 4:6]
+    @test_throws ArgumentError Seeds(randn(4, 5); k=2)
+    @test_throws MethodError MultiVector(V, [1.5])
 end
 
 
@@ -103,7 +111,7 @@ search!(ab)
 
     # ---- off it, the two layouts agree ----
     Random.seed!(1)
-    w = MultiVector(ab.X .+ 1e-2 .* randn(3, 4), copy(ab.d))
+    w = MultiVector(Seeds(ab.X .+ 1e-2 .* randn(3, 4)), copy(ab.d))
     @test reduce(hcat, F(similar(sliced(w)), sliced(w)).X) ≈ F(similar(w), w).X
 end
 
@@ -111,9 +119,9 @@ end
 @testset "Jacobian                                 " begin
     # ---- off the orbit, the columns of the seeds against central differences of the residual ----
     Random.seed!(1)
-    w = MultiVector(ab.X .+ 1e-2 .* randn(3, 4), copy(ab.d))
+    w = MultiVector(Seeds(ab.X .+ 1e-2 .* randn(3, 4)), copy(ab.d))
     J = Jacobian(L, w)
-    unit(k) = (e = zeros(13); e[k] = 1; MultiVector(reshape(e[1:12], 3, 4), e[13:13]))
+    unit(k) = (e = zeros(13); e[k] = 1; MultiVector(Seeds(reshape(e[1:12], 3, 4)), e[13:13]))
     flat(v) = [vec(v.X); v.d]
     A = reduce(hcat, [flat(J*unit(k)) for k in 1:12])
     D = reduce(hcat, [flat(F(similar(w), w .+ 1e-6 .* unit(k)) .-
@@ -124,7 +132,7 @@ end
     @test A[13, :] ≈ [vec(lorenz_rhs!(zeros(3, 1), w.X[:, 1:1], L.ρ)); zeros(9)]
 
     # ---- the same product in the sliced layout ----
-    v = MultiVector(randn(3, 4), [0.3])
+    v = MultiVector(Seeds(randn(3, 4)), [0.3])
     @test reduce(hcat, (Jacobian(L, sliced(w))*sliced(v)).X) ≈ (J*v).X
 end
 
@@ -137,7 +145,7 @@ end
     for i in 1:3
         push!(X, rk4!(_rhs(L), copy(X[end]), τ[i], L.dt))
     end
-    u = MultiVector(X, [T]; τ=τ)
+    u = MultiVector(Seeds(X), [T]; τ=τ)
     @test times(u) ≈ τ
     @test sum(times(u)) ≈ T
 
@@ -152,7 +160,7 @@ end
     # ---- off the orbit, the whole Jacobian, with the column of the period, against central
     #      differences of the residual ----
     Random.seed!(1)
-    w = MultiVector([x .+ 1e-2 .* randn(3) for x in u.X], copy(u.d); τ=times(u))
+    w = MultiVector(Seeds([x .+ 1e-2 .* randn(3) for x in u.X]), copy(u.d); τ=times(u))
     J = Jacobian(L, w)
     flat(v) = [reduce(vcat, v.X); v.d]
     similar_unit(z, k) = (e = similar(z); e .= 0; k <= 12 ? (e.X[(k - 1) ÷ 3 + 1][(k - 1) % 3 + 1] = 1) : (e.d[1] = 1); e)
@@ -179,8 +187,8 @@ end
     #      the error of the scheme ----
     Q = LorenzPropagator(1e-2, 28.0)
     Random.seed!(1)
-    w  = MultiVector(ab.X .+ 1e-2 .* randn(3, 4), copy(ab.d))
-    eT = MultiVector(zeros(3, 4), [1.0])
+    w  = MultiVector(Seeds(ab.X .+ 1e-2 .* randn(3, 4)), copy(ab.d))
+    eT = MultiVector(Seeds(zeros(3, 4)), [1.0])
     flat(v)     = [vec(v.X); v.d]
     residual(y) = flat(Residual(Q)(similar(y), y))
     D = (residual(w .+ 1e-6 .* eT) .- residual(w .- 1e-6 .* eT)) ./ 2e-6
@@ -238,18 +246,18 @@ end
         tangent!(L, copy(ab.X), copy(Vᵃ), τ)
     end
     iterate!(S)
-    @test all(MultipleShooting._block(S.Vk′, a, 4) ≈ W[a] for a in 1:2)
+    @test all(MultipleShooting._block(S.Vk′, a) ≈ W[a] for a in 1:2)
     @test S.tmp ≈ propagate!(L, copy(ab.X), τ)
     @test all(S.E[:, :, i] ≈ Uᵢ(i % 4 + 1)'*reduce(hcat, [Wᵇ[:, i] for Wᵇ in W]) for i in 1:4)
 
     # ---- tangents! advances the blocks of several directions along the states, by default as
     #      tangent! does on each block alone, and leaves the end points in the states ----
     X = copy(ab.X)
-    V = reduce(hcat, S.V)
+    V = Seeds(reduce(hcat, S.V); k=2)
     W = [tangent!(L, copy(ab.X), copy(Vᵃ), τ) for Vᵃ in S.V]
     tangents!(L, X, V, τ)
     @test X ≈ propagate!(L, copy(ab.X), τ)
-    @test all(MultipleShooting._block(V, a, 4) ≈ W[a] for a in 1:2)
+    @test all(MultipleShooting._block(V, a) ≈ W[a] for a in 1:2)
 
     # ---- on bases that have settled, the update passes the test after one step ----
     MultipleShooting.update!(S, ab; tol=1e-12)
@@ -312,13 +320,13 @@ ks_search!(ks22)
         X[:, i] .= vec(x)
         propagate!(K, x, w[i]*T)
     end
-    u = MultiVector(X, copy(z.d); τ=w .* T)
+    u = MultiVector(Seeds(X), copy(z.d); τ=w .* T)
     ks_search!(u)
     @test norm(Residual(K)(similar(u), u)) < 1e-9
     @test period(u) ≈ T rtol=1e-6
 
     Random.seed!(1)
-    y = MultiVector(u.X .+ 1e-3 .* randn(size(u.X)), copy(u.d); τ=times(u))
+    y = MultiVector(Seeds(u.X .+ 1e-3 .* randn(size(u.X))), copy(u.d); τ=times(u))
     v = similar(y)
     v.X .= randn(size(y.X))
     v.d .= 0
@@ -380,11 +388,11 @@ end
     M = Preconditioner(L, ab; k′=2)
     W = MultiVector[]
     for i in 1:4, a in 1:2
-        w = MultiVector(zeros(3, 4), [0.0])
+        w = MultiVector(Seeds(zeros(3, 4)), [0.0])
         w.X[:, i] .= M.S.U[a][:, i]
         push!(W, w)
     end
-    push!(W, MultiVector(zeros(3, 4), [1.0]))
+    push!(W, MultiVector(Seeds(zeros(3, 4)), [1.0]))
     E = reduce(hcat, [MultipleShooting._restrict(M, J*w) for w in W])
     @test norm(Matrix(M.E)[:, 1:8] - E[:, 1:8]) < 1e-12*norm(E)
 
@@ -395,7 +403,7 @@ end
     # ---- M⁻¹ against the dense -(I - W Wᵀ) + W E⁻¹ Wᵀ, and the root of the Gram matrix of the
     #      vectors M⁻¹ qⱼ against that matrix itself, for three orthonormal qⱼ ----
     flat(w)   = [vec(w.X); w.d]
-    unflat(x) = MultiVector(reshape(x[1:12], 3, 4), x[13:13])
+    unflat(x) = MultiVector(Seeds(reshape(x[1:12], 3, 4)), x[13:13])
     Wd = reduce(hcat, flat.(W))
     x  = randn(13)
     Mx = -(x - Wd*(Wd'*x)) + Wd*(Matrix(M.E) \ (Wd'*x))
@@ -476,8 +484,8 @@ end
 @testset "Jacobian by finite differences           " begin
     # ---- off the orbit, its products against those of the tangent equation, in both layouts ----
     Random.seed!(1)
-    w = MultiVector(ab.X .+ 1e-2 .* randn(3, 4), copy(ab.d))
-    v = MultiVector(randn(3, 4), [0.3])
+    w = MultiVector(Seeds(ab.X .+ 1e-2 .* randn(3, 4)), copy(ab.d))
+    v = MultiVector(Seeds(randn(3, 4)), [0.3])
     flat(u) = [vec(u.X); u.d]
     J = JacobianFD(L, w)
     @test norm(flat(J*v) - flat(Jacobian(L, w)*v)) < 1e-6*norm(flat(Jacobian(L, w)*v))
@@ -622,8 +630,8 @@ end
     flat(v) = [vec(v.X); v.d]
 
     # ---- complex states: the real part of the Euclidean product, in both layouts ----
-    z = MultiVector(randn(ComplexF64, 4, 3), [1.5])
-    w = MultiVector(randn(ComplexF64, 4, 3), [0.5])
+    z = MultiVector(Seeds(randn(ComplexF64, 4, 3)), [1.5])
+    w = MultiVector(Seeds(randn(ComplexF64, 4, 3)), [0.5])
     @test dot(z, w) isa Float64
     @test dot(z, w) ≈ real(dot(vec(z.X), vec(w.X))) + 0.75
     @test dot(sliced(z), sliced(w)) ≈ dot(z, w)
@@ -631,7 +639,7 @@ end
     # ---- a product of its own, with a weight on every coordinate, kept by the vectors made from it ----
     q     = [1.0, 2.0, 3.0]
     wdots = (X, Y) -> sum(q .* X .* Y; dims=1)
-    z = MultiVector(copy(guess.X), copy(guess.d); dots=wdots)
+    z = MultiVector(Seeds(copy(parent(guess.X)); dots=wdots), copy(guess.d))
     w = similar(z)
     w .= 2 .* z
     @test dot(z, w) ≈ 2*(sum(q .* guess.X.^2) + period(guess)^2)
@@ -641,8 +649,8 @@ end
     # ---- the search of AB with it: the same orbit, and a phase condition in the same product ----
     @test search!(z).status === :converged
     @test abs(period(z) - period(ab)) < 1e-8
-    v = MultiVector(randn(3, 4), [0.3]; dots=wdots)
-    f = MultipleShooting.rhs!(L, similar(z.X[:, 1:1]), z.X[:, 1:1])
+    v = MultiVector(Seeds(randn(3, 4); dots=wdots), [0.3])
+    f = MultipleShooting.rhs!(L, Seeds(similar(z.X[:, 1:1])), Seeds(z.X[:, 1:1]))
     @test period(Jacobian(L, z)*v) ≈ sum(q .* f .* v.X[:, 1:1])
     @test period(JacobianFD(L, z)*v) ≈ sum(q .* f .* v.X[:, 1:1])
 
@@ -653,7 +661,7 @@ end
     @test maximum(abs, wdots(M.S.U[1], M.S.U[2])) < 1e-12
     Random.seed!(2)
     g = 1 .+ 0.5 .* cos.(2π .* (0:63) ./ 64)
-    u = MultiVector(copy(ks22_guess.X), copy(ks22_guess.d); dots=(X, Y) -> sum(g .* X .* Y; dims=1))
+    u = MultiVector(Seeds(copy(parent(ks22_guess.X)); dots=(X, Y) -> sum(g .* X .* Y; dims=1)), copy(ks22_guess.d))
     @test nkroot!(Residual(K), Jacobian(K, u), u; precond=Preconditioner(K, u; k′=4), flexible=true, krylov_dim=60,
                   krylov_tol=1e-8, Δ=1.0, tol=1e-10, maxiter=40, verbose=false).status === :converged
     @test abs(period(u) - period(ks22)) < 1e-6

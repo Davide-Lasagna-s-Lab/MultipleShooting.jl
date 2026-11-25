@@ -187,10 +187,10 @@ function _assemble!(M::Preconditioner)
 
     # ---- the projections on the bases, one per seed, brought to the host ----
     #      Uᵢᵀ Fᵢ at every seed, f₁ᵀ U₁, U₁ᵀ Gⱼ and g₁ⱼᵀ U₁ at the first seed
-    pf = [vec(Array(z.dots(S.U[a], F))) for a in 1:k′]
-    ff = [_dot(z, f₁, _head(S.U[a])) for a in 1:k′]
-    pg = [_dot(z, _head(S.U[a]), G[j]) for a in 1:k′, j in 1:ns]
-    gg = [_dot(z, g₁[j], _head(S.U[a])) for a in 1:k′, j in 1:ns]
+    pf = [vec(Array(dots(S.U[a], F))) for a in 1:k′]
+    ff = [_dot(f₁, _head(S.U[a])) for a in 1:k′]
+    pg = [_dot(_head(S.U[a]), G[j]) for a in 1:k′, j in 1:ns]
+    gg = [_dot(g₁[j], _head(S.U[a])) for a in 1:k′, j in 1:ns]
 
     # ---- the entries ----
     Is = Int[]
@@ -251,7 +251,7 @@ end
 # the period and the shifts
 function _restrict(M::Preconditioner, v::MultiVector)
     k′ = length(M.S.U)
-    c  = [vec(Array(v.dots(M.S.U[a], v.X))) for a in 1:k′]
+    c  = [vec(Array(dots(M.S.U[a], v.X))) for a in 1:k′]
 
     # ---- seed by seed, as the rows of E ----
     return [vec(permutedims(reduce(hcat, c))); v.d]

@@ -3,10 +3,9 @@
 #
 #     ⟨z, w⟩ = Σᵢ ⟨uᵢ, vᵢ⟩ + Σⱼ dⱼ d'ⱼ,
 #
-# where ⟨uᵢ, vᵢ⟩ is the inner product of two states. The vector carries it, as a function that
-# gives the products of the states of two batches one by one, the Euclidean one unless another is
-# given: GMRES, the phase conditions, the bases of the subspace iteration and the preconditioner
-# all take it from there, so that they share one geometry.
+# where ⟨uᵢ, vᵢ⟩ is the inner product of two states, that of the batch of the seeds, dots (see
+# batch.jl): GMRES, the phase conditions, the bases of the subspace iteration and the
+# preconditioner all take it from there, so that they share one geometry.
 #
 # Broadcasting acts on the two parts separately: an expression such as w .= α .* z .+ β .* w is
 # split into w.X .= α .* z.X .+ β .* w.X on the seeds and w.d .= α .* z.d .+ β .* w.d on the
@@ -14,38 +13,33 @@
 # and state by state in the sliced one.
 
 """
-    MultiVector(X, d; τ=nothing, dots=nothing)
+    MultiVector(X, d; τ=nothing)
 
 The unknowns of multiple shooting, the seeds and the scalars,
 
     z = (u₁, …, u_m, T, s₁, …, s_c),
 
-with the inner product ⟨z, w⟩ = Σᵢ ⟨uᵢ, wᵢ⟩ + Σₖ dₖ d′ₖ, the sum of those of the states and of
-the scalars. It broadcasts like a vector, `w .= α .* z .+ w`, on the seeds and the scalars
-separately.
+with the inner product ⟨z, w⟩ = Σᵢ ⟨uᵢ, wᵢ⟩ + Σₖ dₖ d′ₖ, the sum of those of the states,
+[`dots`](@ref) of the seeds, and of the scalars. It broadcasts like a vector,
+`w .= α .* z .+ w`, on the seeds and the scalars separately.
 
 # Arguments
-- `X`: the seeds, a batch of m states, [`Batched`](@ref) or [`Sliced`](@ref).
+- `X::AbstractSeeds{m, 1}`: the seeds, a batch of m states, [`Batched`](@ref) or
+  [`Sliced`](@ref), as [`Seeds`](@ref) makes from an array, with the inner product of the
+  states.
 - `d::Vector{Float64}`: the scalars `[T, s₁, s₂, …]`, the period followed by one shift per
   continuous symmetry, `[T]` for a periodic orbit. [`period`](@ref), [`nshifts`](@ref) and
   [`shift`](@ref) read them.
 - `τ=nothing`: the lengths of the segments, one per seed, positive and adding up to the period.
   Equal segments, T/m, when not given. [`times`](@ref) reads them. The vector keeps their
   fractions of the period, so that a new period changes them all in proportion.
-- `dots=nothing`: the inner product of the states, a function `(X, Y) -> c` of two batches that
-  gives the products of their states one by one, real: for [`Batched`](@ref) an array whose last
-  dimension runs over the states and the others have size one, so that it broadcasts against a
-  batch, and for [`Sliced`](@ref) a vector. The Euclidean product of the numbers of a state when
-  not given, the real part for complex ones. Every vector made from this one keeps it.
 """
-struct MultiVector{A, D}
-       X::A               # the seeds, a batch of states
-       d::Vector{Float64} # the scalars: the period, then the shifts
-       w::Vector{Float64} # the fractions of the period of the segments, τᵢ/T, not part of the vector
-    dots::D               # the inner products of the states of two batches, one per state
+struct MultiVector{A<:AbstractSeeds}
+    X::A               # the seeds, a batch of states, with their inner product
+    d::Vector{Float64} # the scalars: the period, then the shifts
+    w::Vector{Float64} # the fractions of the period of the segments, τᵢ/T, not part of the vector
 
-    function MultiVector(X, d::AbstractVector; τ=nothing, dots=nothing)
-        m = nsegments(X)
+    function MultiVector(X::AbstractSeeds{m, 1}, d::AbstractVector; τ=nothing) where {m}
         d = convert(Vector{Float64}, d)
 
         # ---- input checks ----
@@ -57,15 +51,12 @@ struct MultiVector{A, D}
         # ---- the fractions: equal segments unless the times are given ----
         w = τ === nothing ? fill(1/m, m) : collect(Float64, τ) ./ sum(τ)
 
-        # ---- the inner product of the states: the Euclidean one unless another is given ----
-        dots = something(dots, _dots)
-
-        return new{typeof(X), typeof(dots)}(X, d, w, dots)
+        return new{typeof(X)}(X, d, w)
     end
 
-    # a vector with the fractions of another, shared and not copied, and its inner product
-    MultiVector(X, d::Vector{Float64}, w::Vector{Float64}, dots=_dots) =
-        new{typeof(X), typeof(dots)}(X, d, w, dots)
+    # a vector with the fractions of another, shared and not copied
+    MultiVector(X::AbstractSeeds{m, 1}, d::Vector{Float64}, w::Vector{Float64}) where {m} =
+        new{typeof(X)}(X, d, w)
 end
 
 """
@@ -122,14 +113,11 @@ end
 # all the shifts, as a view
 _shifts(z::MultiVector) = view(z.d, 2:lastindex(z.d))
 
-Base.similar(z::MultiVector) = MultiVector(_similar(z.X), similar(z.d), z.w, z.dots)
+Base.similar(z::MultiVector) = MultiVector(_similar(z.X), similar(z.d), z.w)
 
-Base.copy(z::MultiVector) = MultiVector(_copy(z.X), copy(z.d), z.w, z.dots)
+Base.copy(z::MultiVector) = MultiVector(_copy(z.X), copy(z.d), z.w)
 
-# the inner product of two batches of states like the seeds of z, the sum over their states
-_dot(z::MultiVector, X, Y) = sum(z.dots(X, Y))
-
-LinearAlgebra.dot(z::MultiVector, w::MultiVector) = _dot(z, z.X, w.X) + LinearAlgebra.dot(z.d, w.d)
+LinearAlgebra.dot(z::MultiVector, w::MultiVector) = _dot(z.X, w.X) + LinearAlgebra.dot(z.d, w.d)
 
 LinearAlgebra.norm(z::MultiVector) = sqrt(LinearAlgebra.dot(z, z))
 

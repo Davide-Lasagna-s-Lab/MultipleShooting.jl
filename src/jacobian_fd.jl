@@ -90,9 +90,9 @@ function LinearAlgebra.mul!(out::MultiVector, J::JacobianFD, v::MultiVector)
 
     # ---- the phase conditions, in time and in space ----
     #      d₁ = ⟨f(u₁), v₁⟩,   d₁₊ⱼ = ⟨gⱼ(u₁), v₁⟩
-    out.d[1] = _dot(J.z, J.f, _head(v.X))
+    out.d[1] = _dot(J.f, _head(v.X))
     for j in 1:nshifts(J.z)
-        out.d[1 + j] = _dot(J.z, J.g[j], _head(v.X))
+        out.d[1 + j] = _dot(J.g[j], _head(v.X))
     end
 
     return out
