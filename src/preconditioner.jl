@@ -31,6 +31,15 @@
 # is accurate, and M⁻¹ would be wrong with no sign of it. M⁻¹ needs to be accurate only next to the
 # tolerance of GMRES, so that SOLVETOL is loose enough for an E of condition number up to about 1e10.
 #
+# Host and device. The bases U and the vectors of the Krylov method are where the seeds live, on
+# the device; the coarse matrix E, its sparse QR factors and the coefficients g and y are on the
+# host, of size m k′ + 1 + nshifts. An application of M⁻¹ crosses twice. The restriction Wᵀ v is k′
+# inner products of whole seeds, m numbers each, copied to the host, one copy per direction. The
+# coarse solve is on the host. The prolongation W (g + y) sends back k′ vectors of m coefficients,
+# one per direction, by `coefficients`, each multiplying its U[k₁] on the device. Assembling E
+# copies to the host the projections of f on the bases, k′ copies of m numbers, and a few single
+# numbers at the first seed; the Galerkin blocks are on the host already (subspace.jl).
+#
 # Keeping the bases up during a search. After a Newton step the tangent maps change and the old
 # spans are no longer invariant. At every update the subspace makes steps at the new point from the
 # bases of the point before, at least one and at most `maxsteps`, until the turn of the leading `k`
@@ -187,12 +196,13 @@ function _assemble!(M::Preconditioner)
 
     # ---- the projections on the bases, one per seed, brought to the host: dots gives them
     #      where the seeds are and in the form that broadcasts against them, Array copies them
-    #      to the host and vec makes a vector over the seeds of them ----
+    #      to the host and vec makes a vector over the seeds of them. Those at the first seed
+    #      alone are single numbers, summed on the device ----
     #      Uᵢᵀ Fᵢ at every seed, f₁ᵀ U₁, U₁ᵀ Gⱼ and g₁ⱼᵀ U₁ at the first seed
-    pf = [vec(Array(dots(S.U[a], F))) for a in 1:k′]
-    ff = [_dot(f₁, head(S.U[a])) for a in 1:k′]
-    pg = [_dot(head(S.U[a]), G[j]) for a in 1:k′, j in 1:ns]
-    gg = [_dot(g₁[j], head(S.U[a])) for a in 1:k′, j in 1:ns]
+    pf = [vec(Array(dots(S.U[k₁], F))) for k₁ in 1:k′]
+    ff = [_dot(f₁, head(S.U[k₁])) for k₁ in 1:k′]
+    pg = [_dot(head(S.U[k₁]), G[j]) for k₁ in 1:k′, j in 1:ns]
+    gg = [_dot(g₁[j], head(S.U[k₁])) for k₁ in 1:k′, j in 1:ns]
 
     # ---- the entries ----
     Is = Int[]
@@ -204,21 +214,21 @@ function _assemble!(M::Preconditioner)
         j = i % m + 1           # the seed segment i reaches
 
         # ---- the Galerkin block Eᵢ = Uⱼᵀ ψᵢ Uᵢ, -I, and the period column ----
-        for a in 1:k′, b in 1:k′
-            entry!(seed(j)[a], seed(i)[b], S.E[a, b, i])
+        for k₁ in 1:k′, k₂ in 1:k′
+            entry!(seed(j)[k₁], seed(i)[k₂], S.E[k₁, k₂, i])
         end
-        for a in 1:k′
-            entry!(seed(i)[a], seed(i)[a], -1.0)
-            entry!(seed(j)[a], T, pf[a][j]/m)
+        for k₁ in 1:k′
+            entry!(seed(i)[k₁], seed(i)[k₁], -1.0)
+            entry!(seed(j)[k₁], T, pf[k₁][j]/m)
         end
     end
 
     # ---- the phase rows and the shift columns, at the first seed ----
-    for a in 1:k′
-        entry!(T, seed(1)[a], ff[a])
+    for k₁ in 1:k′
+        entry!(T, seed(1)[k₁], ff[k₁])
         for j in 1:ns
-            entry!(seed(1)[a], sh(j), pg[a, j])
-            entry!(sh(j), seed(1)[a], gg[a, j])
+            entry!(seed(1)[k₁], sh(j), pg[k₁, j])
+            entry!(sh(j), seed(1)[k₁], gg[k₁, j])
         end
     end
 
@@ -250,11 +260,12 @@ function _solve(M::Preconditioner, g::AbstractVecOrMat)
 end
 
 # the coefficients Wᵀ v: the coordinates of every seed in its basis, direction by direction, then
-# the period and the shifts. c[a] holds those of direction a at every seed, on the host as a
-# vector, by vec(Array(…)) of what dots gives
+# the period and the shifts. c[k₁] holds those of direction k₁ at every seed, on the host as a
+# vector, by vec(Array(…)) of what dots gives on the device: k′ copies of m numbers. The result
+# is a vector of the host
 function _restrict(M::Preconditioner, v::ShootingVector)
     k′ = length(M.S.U)
-    c  = [vec(Array(dots(M.S.U[a], v.X))) for a in 1:k′]
+    c  = [vec(Array(dots(M.S.U[k₁], v.X))) for k₁ in 1:k′]
 
     # ---- seed by seed, as the rows of E ----
     return [vec(permutedims(reduce(hcat, c))); v.d]
@@ -287,12 +298,14 @@ function LinearAlgebra.ldiv!(out::ShootingVector, M::Preconditioner, v::Shooting
     g = _restrict(M, v)
     y = _solve(M, g)
 
-    # ---- the seeds: -v plus the bases with the coefficients g + y, one per seed ----
-    #      outᵢ = -vᵢ + Σₐ (gᵢᵃ + yᵢᵃ) uᵢᵃ
+    # ---- the seeds: -v plus the bases with the coefficients g + y, one per seed. The
+    #      coefficients of a direction go from the host to the device, in the form of dots, and
+    #      multiply its basis there ----
+    #      outᵢ = -vᵢ + Σ_k₁ (gᵢ^(k₁) + yᵢ^(k₁)) uᵢ^(k₁)
     out .= .-v
-    for a in 1:k′
-        c = coefficients(v.X, [g[(i - 1)*k′ + a] + y[(i - 1)*k′ + a] for i in 1:m])
-        out.X .+= c .* S.U[a]
+    for k₁ in 1:k′
+        c = coefficients(v.X, [g[(i - 1)*k′ + k₁] + y[(i - 1)*k′ + k₁] for i in 1:m])
+        out.X .+= c .* S.U[k₁]
     end
 
     # ---- the period and the shifts ----

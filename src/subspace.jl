@@ -46,9 +46,10 @@
 # vectors, may still be turning: the turn falls at the rate Λ_k - Λ_{k′+1}, with no need of a gap
 # after the kth exponent.
 #
-# The layout. Two indices run over the vectors of the bases, the direction a = 1, …, k′ and the
-# shooting point i = 1, …, m: vᵢᵃ is direction a at point i. They are stored by direction. V is a
-# vector of k′ elements, each like the seeds, m states, and V[a] holds direction a at every point,
+# The layout. Two indices run over the vectors of the bases, the direction k₁ = 1, …, k′ and the
+# shooting point i = 1, …, m: vᵢ^(k₁) is direction k₁ at point i. They are stored by direction. V
+# is a vector of k′ elements, each like the seeds, m states, and V[k₁] holds direction k₁ at every
+# point,
 #
 #     V[1] = (v₁¹, v₂¹, …, v_m¹),   …,   V[k′] = (v₁ᵏ′, v₂ᵏ′, …, v_mᵏ′).
 #
@@ -62,20 +63,38 @@
 # the elements of V are the rows of this table, and the bases its columns, V₁ = [v₁¹, v₁²]. The
 # rows are stored, for two reasons:
 #
-#   - V[a] is like the seeds, so that it is shifted and rolled forward as a vector of the Jacobian
+#   - V[k₁] is like the seeds, so that it is shifted and rolled forward as a vector of the Jacobian
 #     is, and the propagator takes it as it takes the seeds;
 #
 #   - an operation between two directions is one operation at all the points. The inner products
-#     dots(V[b], V[a]) are m numbers, one per point, ⟨vᵢᵇ, vᵢᵃ⟩, and V[a] .-= c .* V[b] takes from
-#     every point its own multiple. The linear algebra of the m bases, Gram–Schmidt, the Galerkin
-#     blocks and the turn at the bottom of the file, is then written once, as loops over the pairs
-#     of directions, and runs at all the points together, on a GPU as operations on whole arrays.
+#     dots(V[k₁], V[k₂]) are m numbers, one per point, ⟨vᵢ^(k₁), vᵢ^(k₂)⟩, and
+#     V[k₂] .-= c .* V[k₁] takes from every point its own multiple. The linear algebra of the m
+#     bases, Gram–Schmidt, the Galerkin blocks and the turn at the bottom of the file, is then
+#     written once, as loops over the pairs of directions, and runs at all the points together,
+#     on a GPU as operations on whole arrays.
 #
-# The small matrices of a point, k′ × k′, its triangular factor, its Galerkin block, the
-# coordinates of one basis in another, are on the host, as k′ × k′ × m arrays: entry (a, b, i) is
-# for the directions a and b at point i. A step hands the whole vector V to tangent!, and it is
-# for the propagator to advance the m k′ states together, with the shooting points integrated once
-# for all the directions. The bases before a step and the turn, U and Z, are laid out as V.
+# A step hands the whole vector V to tangent!, and it is for the propagator to advance the m k′
+# states together, with the shooting points integrated once for all the directions. The bases
+# before a step and the turn, U and Z, are laid out as V.
+#
+# Host and device. The device is where the seeds live, a GPU or, for arrays on the CPU, the host
+# itself. Two kinds of data, and one passage between them:
+#
+#   - on the device, what has the size of the states: the elements of V, U and Z, the work seeds
+#     tmp, and what dots returns. The inner products of two directions are m numbers, but they
+#     come out where the seeds are, in the form that broadcasts against them, and they are used
+#     there, as the multipliers of V[k₂] .-= c .* V[k₁]: this never leaves the device;
+#
+#   - on the host, what has the size k′ × k′ of a point: the triangular factors R and T, the
+#     Galerkin blocks E and the sines σ, as k′ × k′ × m and k′ × m arrays of Float64, entry
+#     (k₁, k₂, i) for the directions k₁ and k₂ at point i. The small dense algebra, the singular
+#     values of T and, in the preconditioner, the coarse matrix and its solves, is done there;
+#
+#   - from the device to the host go only inner products, the m numbers of a pair of directions
+#     at a time, by `vec(Array(c))`, to fill those arrays. On a GPU each is a wait for the device
+#     and a small copy. A step makes about 2k′² of them: k′(k′ + 1)/2 for each pass of
+#     Gram–Schmidt, two for the bases and one for the turn, and k′² for the Galerkin blocks.
+#     Nothing goes from the host to the device.
 
 """
     Subspace(P, z; k′)
@@ -94,12 +113,12 @@ to `z` and makes steps there until the turn passes the test.
 mutable struct Subspace{PT, ZT<:ShootingVector, A}
       P::PT                 # the propagator
       z::ZT                 # the point, not a copy: its seeds, period and shifts give the tangent maps
-      V::Vector{A}          # the bases after the last step, Vᵢ^(r), stored by direction
-      U::Vector{A}          # the bases before it, Vᵢ^(r-1), which the preconditioner uses with E
-      E::Array{Float64, 3}  # their Galerkin blocks Eᵢ = E[:, :, i], k′ × k′ × m, Inf before any step
-      Z::Vector{A}          # the turn of the last step, Zᵢ, then the orthonormal factor of its QR
-      σ::Matrix{Float64}    # sin ϑⱼ,ᵢ = σⱼ(Zᵢ), increasing in j, k′ × m, Inf before any step
-    tmp::A                  # like the seeds: the shooting points, then the ends of the segments
+      V::Vector{A}          # device: the bases after the last step, Vᵢ^(r), stored by direction
+      U::Vector{A}          # device: the bases before it, Vᵢ^(r-1), which the preconditioner uses
+      E::Array{Float64, 3}  # host: their Galerkin blocks Eᵢ = E[:, :, i], k′ × k′ × m, Inf at first
+      Z::Vector{A}          # device: the turn of the last step, Zᵢ, then the Q of its QR
+      σ::Matrix{Float64}    # host: sin ϑⱼ,ᵢ = σⱼ(Zᵢ), increasing in j, k′ × m, Inf at first
+    tmp::A                  # device: the shooting points, then the ends of the segments
   steps::Int                # subspace steps of the last update!
 
     function Subspace(P, z::ShootingVector; k′::Int)
@@ -157,24 +176,24 @@ function iterate!(S::Subspace)
 
     # ---- the bases before the step, kept in U: the preconditioner uses them with E, and the
     #      turn compares the new ones with them ----
-    #      U[a] = (v₁ᵃ, …, v_mᵃ),   direction a of Vᵢ^(r-1) at every point i
-    for a in 1:k′
-        copyto!(S.U[a], S.V[a])
+    #      U[k₁] = (v₁^(k₁), …, v_m^(k₁)),   direction k₁ of Vᵢ^(r-1) at every point i
+    for k₁ in 1:k′
+        copyto!(S.U[k₁], S.V[k₁])
     end
 
     # ---- the k′ directions advanced together over the segments, along the shooting points: one
     #      call on the vector V as it is. tmp starts as the shooting points and ends as the
     #      end points of the segments, which the preconditioner takes from there ----
-    #      V[a] = (ψ₁ v₁ᵃ, …, ψ_m v_mᵃ),   tmp = (φ_τ(u₁), …, φ_τ(u_m))
+    #      V[k₁] = (ψ₁ v₁^(k₁), …, ψ_m v_m^(k₁)),   tmp = (φ_τ(u₁), …, φ_τ(u_m))
     copyto!(S.tmp, z.X)
     tangent!(S.P, S.tmp, S.V, τ)
 
     # ---- each image at the point it reaches: that of segment i belongs to point i + 1, and that
     #      of the last segment, shifted, to point 1 ----
-    #      V[a] = (S(s) ψ_m v_mᵃ, ψ₁ v₁ᵃ, …, ψ_{m-1} v_{m-1}ᵃ)
-    for a in 1:k′
-        nshifts(z) > 0 && shift!(S.P, tail(S.V[a]), shifts(z))
-        roll_forward!(S.V[a])
+    #      V[k₁] = (S(s) ψ_m v_m^(k₁), ψ₁ v₁^(k₁), …, ψ_{m-1} v_{m-1}^(k₁))
+    for k₁ in 1:k′
+        nshifts(z) > 0 && shift!(S.P, tail(S.V[k₁]), shifts(z))
+        roll_forward!(S.V[k₁])
     end
 
     # ---- the Galerkin blocks of the bases before the step: the images, not yet orthonormal, in
@@ -291,46 +310,49 @@ end
 # ---------------------------------------------------------------------------- #
 
 # The four functions below work on bases stored by direction (see the layout at the top): U, V and
-# Z are vectors of k′ elements like the seeds, element a the direction a at every point. Each is a
+# Z are vectors of k′ elements like the seeds, element k₁ the direction k₁ at every point. Each is a
 # loop over the pairs of directions, and every line of the loop acts at the m points at once:
 #
-#     c = dots(U[a], V[b])      the m inner products ⟨uᵢᵃ, vᵢᵇ⟩, one per point
-#     V[b] .-= c .* U[a]        at every point i, vᵢᵇ ← vᵢᵇ - cᵢ uᵢᵃ
+#     c = dots(U[k₁], V[k₂])      the m inner products ⟨uᵢ^(k₁), vᵢ^(k₂)⟩, one per point
+#     V[k₂] .-= c .* U[k₁]        at every point i, vᵢ^(k₂) ← vᵢ^(k₂) - cᵢ uᵢ^(k₁)
 #
-# The inner product is that of the seeds, dots, with its weights if it has them. Only the
-# coefficients go to the host, m numbers a pair, into the k′ × k′ × m arrays of the small matrices,
-# by `vec(Array(c))`. dots gives its m numbers in the form that broadcasts against the seeds, and
+# The inner product is that of the seeds, dots, with its weights if it has them. U, V, Z and c
+# are on the device, and so are both lines above. Only the coefficients go to the host, m numbers
+# a pair, into the k′ × k′ × m arrays of the small matrices, which are of the host, by
+# `vec(Array(c))`. dots gives its m numbers in the form that broadcasts against the seeds, and
 # where they live: for an array, one with every dimension of size one but the last, 1 × m or
 # 1 × 1 × m, on a GPU if the seeds are. `Array` copies them to the host, and `vec` makes of them
 # a plain vector of m numbers, as an index over the points needs.
 
 # The Galerkin blocks of the bases U before a step, from their images V, taken before
-# Gram–Schmidt. The step has rolled the images forward, so that V[b] holds at point j the image
+# Gram–Schmidt. The step has rolled the images forward, so that V[k₂] holds at point j the image
 # that reaches it, that of segment j - 1, cyclically,
 #
-#     V[b] = (S(s) ψ_m u_mᵇ, ψ₁ u₁ᵇ, …, ψ_{m-1} u_{m-1}ᵇ).
+#     V[k₂] = (S(s) ψ_m u_m^(k₂), ψ₁ u₁^(k₂), …, ψ_{m-1} u_{m-1}^(k₂)).
 #
 # Its coordinates in the old basis of the point it reaches are the block of the segment it comes
 # from,
 #
-#     (Eᵢ)ₐᵦ = ⟨uᵢ₊₁ᵃ, ψᵢ uᵢᵇ⟩,   Eᵢ = Uᵢ₊₁ᵀ ψᵢ Uᵢ,   E_m = U₁ᵀ S(s) ψ_m U_m.
+#     Eᵢ[k₁, k₂] = ⟨uᵢ₊₁^(k₁), ψᵢ uᵢ^(k₂)⟩,   Eᵢ = Uᵢ₊₁ᵀ ψᵢ Uᵢ,   E_m = U₁ᵀ S(s) ψ_m U_m.
 #
-# For a pair of directions dots(U[a], V[b]) gives them at all the points, in the order of the
+# For a pair of directions dots(U[k₁], V[k₂]) gives them at all the points, in the order of the
 # point reached, j = i + 1: moved back by one place they are in the order of the segment, i. E is
-# k′ × k′ × m on the host, E[:, :, i] the block of segment i.
+# k′ × k′ × m on the host, E[:, :, i] the block of segment i. U and V are on the device and are
+# not changed: every pair of directions costs one reduction there and one copy to the host, k′²
+# in all.
 function _galerkin!(E::Array{Float64, 3}, U::Vector, V::Vector)
     k′ = length(U)
 
-    for a in 1:k′, b in 1:k′
-        # ---- at every point j, the coordinate along uⱼᵃ of the image that reaches it, on the
+    for k₁ in 1:k′, k₂ in 1:k′
+        # ---- at every point j, the coordinate along uⱼ^(k₁) of the image that reaches it, on the
         #      host as a vector of m numbers: without vec the shift below would run along a
         #      dimension of size one, and move nothing ----
-        #      cⱼ = ⟨uⱼᵃ, ψⱼ₋₁ uⱼ₋₁ᵇ⟩,   j = 1, …, m
-        c = vec(Array(dots(U[a], V[b])))
+        #      cⱼ = ⟨uⱼ^(k₁), ψⱼ₋₁ uⱼ₋₁^(k₂)⟩,   j = 1, …, m
+        c = vec(Array(dots(U[k₁], V[k₂])))
 
         # ---- moved back to the segment the image comes from ----
-        #      (Eᵢ)ₐᵦ = cᵢ₊₁ = ⟨uᵢ₊₁ᵃ, ψᵢ uᵢᵇ⟩
-        E[a, b, :] .= circshift(c, -1)
+        #      Eᵢ[k₁, k₂] = cᵢ₊₁ = ⟨uᵢ₊₁^(k₁), ψᵢ uᵢ^(k₂)⟩
+        E[k₁, k₂, :] .= circshift(c, -1)
     end
 
     return E
@@ -343,9 +365,11 @@ end
 #     the part of the new basis outside the old span,    Zᵢ = Vᵢ - Uᵢ Cᵢ,   formed in Z
 #     its singular values, increasing, into σ[:, i],     σⱼ(Zᵢ) = sin ϑⱼ,ᵢ
 #
-# C is a k′ × k′ matrix whose entry (a, b) is not a number but the m of them that dots gives, one
-# per point, left in that form, since each only multiplies U[a], point by point. Z is stored as V
-# is, Z[b] the direction b of the turn at every point.
+# C is a k′ × k′ matrix whose entry (k₁, k₂) is not a number but the m of them that dots gives,
+# one per point, left in that form and on the device, since each only multiplies U[k₁] there,
+# point by point: the coordinates never come to the host. Z is stored as V is, on the device,
+# Z[k₂] the direction k₂ of the turn at every point. What comes to the host is T alone, through
+# Gram–Schmidt, and σ is computed there.
 #
 # The singular values of Zᵢ are not computed on Zᵢ itself, for three reasons. Zᵢ is n × k′, with n
 # the size of a state, a whole field, possibly on a GPU. It is not one matrix: its columns are
@@ -385,15 +409,15 @@ function _turn!(Z::Vector, σ::Matrix{Float64}, U::Vector, V::Vector)
 
     # ---- the coordinates of the new basis in the old: for every pair of directions, m numbers,
     #      one per point ----
-    #      (Cᵢ)ₐᵦ = ⟨uᵢᵃ, vᵢᵇ⟩
-    C = [dots(U[a], V[b]) for a in 1:k′, b in 1:k′]
+    #      Cᵢ[k₁, k₂] = ⟨uᵢ^(k₁), vᵢ^(k₂)⟩
+    C = [dots(U[k₁], V[k₂]) for k₁ in 1:k′, k₂ in 1:k′]
 
     # ---- the new basis minus its projection on the old, direction by direction ----
-    #      zᵢᵇ = vᵢᵇ - Σₐ (Cᵢ)ₐᵦ uᵢᵃ
-    for b in 1:k′
-        copyto!(Z[b], V[b])
-        for a in 1:k′
-            Z[b] .-= C[a, b] .* U[a]
+    #      zᵢ^(k₂) = vᵢ^(k₂) - Σ_k₁ Cᵢ[k₁, k₂] uᵢ^(k₁)
+    for k₂ in 1:k′
+        copyto!(Z[k₂], V[k₂])
+        for k₁ in 1:k′
+            Z[k₂] .-= C[k₁, k₂] .* U[k₁]
         end
     end
 
@@ -431,17 +455,19 @@ end
 #
 #     Vᵢ = Qᵢ Rᵢ,   i = 1, …, m,
 #
-# in R, k′ × k′ × m on the host: R[:, :, i] is upper triangular, with a positive diagonal.
+# in R, k′ × k′ × m on the host: R[:, :, i] is upper triangular, with a positive diagonal. V is on
+# the device and stays there: a pass makes k′(k′ + 1)/2 copies to the host, the products of every
+# pair of directions and the norms, m numbers each.
 #
-# The loop is that of the textbook on the columns of one matrix, with the element V[a] for column
-# a. The directions are taken in order: each loses its components along those before it, which are
+# The loop is that of the textbook on the columns of one matrix, with the element V[k₂] for column
+# k₂. The directions are taken in order: each loses its components along those before it, which are
 # orthonormal by then, and is normalised, so that the first j vectors of Qᵢ span the first j of
-# Vᵢ. The scheme is the modified one: the component along qᵇ is measured on the vector as it
+# Vᵢ. The scheme is the modified one: the component along q^(k₁) is measured on the vector as it
 # stands, the components before already taken out, and not on the vector at the start.
 #
-# What differs from the textbook is that a line acts at the m points together, since V[a] holds
-# direction a at all of them. c and n are not numbers but m of them, one per point, the inner
-# products and the norms there, in the form that dots gives, which broadcasts against V[a] so that
+# What differs from the textbook is that a line acts at the m points together, since V[k₂] holds
+# direction k₂ at all of them. c and n are not numbers but m of them, one per point, the inner
+# products and the norms there, in the form that dots gives, which broadcasts against V[k₂] so that
 # every point gets its own. They go to the host only to fill R. The inner product is that of the
 # seeds, so that the vectors come out orthonormal in the geometry of the states.
 #
@@ -452,22 +478,23 @@ function _gram_schmidt!(V::Vector)
     m  = nsegments(first(V))
     R  = zeros(k′, k′, m)
 
-    for a in 1:k′
-        # ---- direction a minus its components along the directions before it, one after the
+    for k₂ in 1:k′
+        # ---- direction k₂ minus its components along the directions before it, one after the
         #      other, at every point. c stays where the seeds are for the subtraction, and goes to
         #      the host, as a vector over the points, for R ----
-        #      cᵢ = ⟨qᵢᵇ, vᵢᵃ⟩,   vᵢᵃ ← vᵢᵃ - cᵢ qᵢᵇ,   (Rᵢ)ᵦₐ = cᵢ,   b = 1, …, a - 1
-        for b in 1:a-1
-            c = dots(V[b], V[a])
-            V[a] .-= c .* V[b]
-            R[b, a, :] .= vec(Array(c))
+        #      cᵢ = ⟨qᵢ^(k₁), vᵢ^(k₂)⟩,   vᵢ^(k₂) ← vᵢ^(k₂) - cᵢ qᵢ^(k₁),   Rᵢ[k₁, k₂] = cᵢ,
+        #      for k₁ = 1, …, k₂ - 1
+        for k₁ in 1:k₂-1
+            c = dots(V[k₁], V[k₂])
+            V[k₂] .-= c .* V[k₁]
+            R[k₁, k₂, :] .= vec(Array(c))
         end
 
-        # ---- direction a normalised at every point, and the norms to the host likewise ----
-        #      nᵢ = ‖vᵢᵃ‖,   qᵢᵃ = vᵢᵃ/nᵢ,   (Rᵢ)ₐₐ = nᵢ
-        n = sqrt.(dots(V[a], V[a]))
-        V[a] ./= max.(n, floatmin(Float64))
-        R[a, a, :] .= vec(Array(n))
+        # ---- direction k₂ normalised at every point, and the norms to the host likewise ----
+        #      nᵢ = ‖vᵢ^(k₂)‖,   qᵢ^(k₂) = vᵢ^(k₂)/nᵢ,   Rᵢ[k₂, k₂] = nᵢ
+        n = sqrt.(dots(V[k₂], V[k₂]))
+        V[k₂] ./= max.(n, floatmin(Float64))
+        R[k₂, k₂, :] .= vec(Array(n))
     end
 
     return R
