@@ -44,8 +44,8 @@ export propagate!,
        continuation!
 
 include("interface.jl")
-include("batched.jl")
-include("sliced.jl")
+include("seeds/batched.jl")
+include("seeds/sliced.jl")
 include("shootingvector.jl")
 include("residual.jl")
 include("jacobian.jl")
