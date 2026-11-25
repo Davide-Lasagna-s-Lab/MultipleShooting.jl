@@ -1,13 +1,22 @@
 # Batches of states. The package does not know what a batch is: it is whatever the caller hands
 # over, the seeds of the segments or the vectors attached to them, and the propagator of the
-# caller advances it. The package only moves the states of a batch about, with the few functions
-# of this file, and combines batches by broadcasting.
+# caller advances it. The package only moves the states of a batch about, and combines batches by
+# broadcasting. What it asks of a batch are the public functions of this file,
 #
-# The functions are written for an array whose last dimension runs over the states, so that a
-# state may be a vector, a field on a grid or an array on a GPU: a matrix of columns, or an array
-# type of the caller's with `similar`, `copy`, `copyto!`, `view`, `reverse!` and `randn!`. A batch
-# of another kind, such as a vector of states advanced one at a time, gives its own methods of
-# these functions, and broadcasts state by state.
+#     nsegments(X)            the number of states
+#     states(X, r)            the states r, as a batch, without a copy
+#     similar_states(X, b)    a batch like X with b states
+#     shift_forward!(X)       the states moved forward by one slot, cyclically
+#     shift_backward!(X)      and back by one
+#     dots(X, Y)              the inner products of the states, one per state
+#     coefficients(X, c)      coefficients one per state, in the form of dots
+#
+# and, of Base, `similar`, `copy`, `copyto!`, `randn!` and broadcasting.
+#
+# The methods here are for an array whose last dimension runs over the states, so that a state may
+# be a vector, a field on a grid or an array on a GPU: a matrix of columns, or an array type of the
+# caller's, with `view` and `reverse!`. A batch of another kind, such as a vector of states
+# advanced one at a time, gives its own methods of these functions, and broadcasts state by state.
 
 """
     nsegments(X)
@@ -31,25 +40,33 @@ dots(X, Y) = sum(real.(conj.(X) .* Y); dims=1:ndims(X) - 1)
 # the inner product of two batches, the sum over their states
 _dot(X, Y) = sum(dots(X, Y))
 
-# the states r of a batch, as a batch, without a copy
-_states(X, r::AbstractUnitRange) = selectdim(X, ndims(X), r)
+"""
+    states(X, r) -> Y
+
+The states `r`, a range, of the batch `X`, as a batch that shares them, without a copy.
+"""
+states(X, r::AbstractUnitRange) = selectdim(X, ndims(X), r)
 
 # the first and the last state of a batch, as a batch of one state: the first seed, and the end
 # of the last segment
-_head(X) = _states(X, 1:1)
-_tail(X) = _states(X, nsegments(X):nsegments(X))
+_head(X) = states(X, 1:1)
+_tail(X) = states(X, nsegments(X):nsegments(X))
 
 # block a of a batch made of blocks of m states, (a - 1)m + 1 to am
-_block(X, a::Int, m::Int) = _states(X, ((a - 1)*m + 1):(a*m))
+_block(X, a::Int, m::Int) = states(X, ((a - 1)*m + 1):(a*m))
 
-# a batch like X with b states, its entries not set, of the type that `similar` gives for the new
-# size, which a propagator must be able to advance
-_similar(X, b::Int) = similar(X, eltype(X), (Base.front(size(X))..., b))
+"""
+    similar_states(X, b) -> Y
+
+A batch like `X` with `b` states, its entries not set: for an array, of the type that `similar`
+gives for the new size, which the propagator must be able to advance.
+"""
+similar_states(X, b::Int) = similar(X, eltype(X), (Base.front(size(X))..., b))
 
 # k′ copies of the batch X, one after the other, as one batch of k′ blocks
 function _copies(X, k′::Int)
     m   = nsegments(X)
-    Xk′ = _similar(X, k′*m)
+    Xk′ = similar_states(X, k′*m)
     for a in 1:k′
         copyto!(_block(Xk′, a, m), X)
     end
@@ -57,47 +74,59 @@ function _copies(X, k′::Int)
     return Xk′
 end
 
-# coefficients one per state, from a vector on the host, in the form of dots, so that they
-# broadcast against a batch, on its device
-_coefficients(X, c::AbstractVector) =
+"""
+    coefficients(X, c) -> a
+
+The coefficients of the vector `c`, one per state of the batch `X`, in the form of [`dots`](@ref),
+so that `a .* X` is every state times its own: for an array, on its device.
+"""
+coefficients(X, c::AbstractVector) =
     copyto!(similar(X, real(eltype(X)), ntuple(_ -> 1, ndims(X) - 1)..., length(c)), c)
 
-# The states of X moved forward by one slot, forward in time along the orbit, cyclically and in
-# place: state i goes into slot i + 1, and the last state into slot 1,
-#
-#     X = (x₁, x₂, x₃)   →   X = (x₃, x₁, x₂)
-#
-# In multiple shooting this puts the end of each segment in the row of the seed it has to reach.
-# By two reversals along the last dimension, all of it, then all but the first slot, each in
-# place; with five states,
-#
-#     X                                  (x₁, x₂, x₃, x₄, x₅)
-#     all of it reversed                 (x₅, x₄, x₃, x₂, x₁)
-#     slots 2 to 5 reversed              (x₅, x₁, x₂, x₃, x₄)
-#
-# the last state comes first, and the others keep their order one slot later
-function _shift_forward!(X)
+"""
+    shift_forward!(X) -> X
+
+Move the states of the batch `X` forward by one slot, forward in time along the orbit, cyclically
+and in place: state i goes into slot i + 1, and the last state into slot 1,
+
+    X = (x₁, x₂, x₃)   →   X = (x₃, x₁, x₂)
+
+In multiple shooting this puts the end of each segment in the row of the seed it has to reach.
+"""
+function shift_forward!(X)
+    # By two reversals along the last dimension, all of it, then all but the first slot, each in
+    # place; with five states,
+    #
+    #     X                                  (x₁, x₂, x₃, x₄, x₅)
+    #     all of it reversed                 (x₅, x₄, x₃, x₂, x₁)
+    #     slots 2 to 5 reversed              (x₅, x₁, x₂, x₃, x₄)
+    #
+    # the last state comes first, and the others keep their order one slot later
     d = ndims(X)
     reverse!(X; dims=d)
-    reverse!(_states(X, 2:nsegments(X)); dims=d)
+    reverse!(states(X, 2:nsegments(X)); dims=d)
 
     return X
 end
 
-# The states of X moved back by one slot, backward in time, the inverse of _shift_forward!: state
-# i goes into slot i - 1, and the first state into the last slot,
-#
-#     X = (x₁, x₂, x₃)   →   X = (x₂, x₃, x₁)
-#
-# by all of it reversed, then all but the last slot,
-#
-#     X                                  (x₁, x₂, x₃, x₄, x₅)
-#     all of it reversed                 (x₅, x₄, x₃, x₂, x₁)
-#     slots 1 to 4 reversed              (x₂, x₃, x₄, x₅, x₁)
-function _shift_backward!(X)
+"""
+    shift_backward!(X) -> X
+
+Move the states of the batch `X` back by one slot, backward in time, cyclically and in place, the
+inverse of [`shift_forward!`](@ref): state i goes into slot i - 1, and the first state into the
+last slot,
+
+    X = (x₁, x₂, x₃)   →   X = (x₂, x₃, x₁)
+"""
+function shift_backward!(X)
+    # all of it reversed, then all but the last slot,
+    #
+    #     X                                  (x₁, x₂, x₃, x₄, x₅)
+    #     all of it reversed                 (x₅, x₄, x₃, x₂, x₁)
+    #     slots 1 to 4 reversed              (x₂, x₃, x₄, x₅, x₁)
     d = ndims(X)
     reverse!(X; dims=d)
-    reverse!(_states(X, 1:nsegments(X)-1); dims=d)
+    reverse!(states(X, 1:nsegments(X)-1); dims=d)
 
     return X
 end

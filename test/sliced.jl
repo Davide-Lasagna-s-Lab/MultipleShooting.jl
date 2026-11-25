@@ -22,14 +22,14 @@ MultipleShooting.nsegments(X::Sliced) = length(X.states)
 MultipleShooting.dots(X::Sliced, Y::Sliced) =
     map((x, y) -> sum(X.q .* real.(conj.(x) .* y)), X.states, Y.states)
 
-MultipleShooting._states(X::Sliced, r::AbstractUnitRange) = Sliced(view(X.states, r), X.q)
+MultipleShooting.states(X::Sliced, r::AbstractUnitRange) = Sliced(view(X.states, r), X.q)
 
-MultipleShooting._similar(X::Sliced, b::Int) = Sliced([similar(first(X.states)) for _ in 1:b], X.q)
+MultipleShooting.similar_states(X::Sliced, b::Int) = Sliced([similar(first(X.states)) for _ in 1:b], X.q)
 
-MultipleShooting._coefficients(X::Sliced, c::AbstractVector) = collect(Float64, c)
+MultipleShooting.coefficients(X::Sliced, c::AbstractVector) = collect(Float64, c)
 
-MultipleShooting._shift_forward!(X::Sliced)  = (circshift!(X.states, 1); X)
-MultipleShooting._shift_backward!(X::Sliced) = (circshift!(X.states, -1); X)
+MultipleShooting.shift_forward!(X::Sliced)  = (circshift!(X.states, 1); X)
+MultipleShooting.shift_backward!(X::Sliced) = (circshift!(X.states, -1); X)
 
 # ---- what Base gives for an array ----
 Base.similar(X::Sliced)            = Sliced(map(similar, X.states), X.q)

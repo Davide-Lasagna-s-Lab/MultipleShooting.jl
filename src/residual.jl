@@ -51,10 +51,12 @@ function (F::Residual)(r::MultiVector, z::MultiVector)
     # ---- a period out of bounds: an infinite residual ----
     F.bounds[1] < period(z) < F.bounds[2] || return r .= Inf
 
+    # ---- the length of a segment, the same for all ----
+    #      τ = T/m
     τ = period(z)/nsegments(z)
 
-    # ---- the seeds ----
-    #      rᵢ = uᵢ
+    # ---- the unknowns: the seeds, and the scalars with them ----
+    #      rᵢ = uᵢ,   r.d = z.d
     r .= z
 
     # ---- advanced over their segments ----
@@ -65,9 +67,13 @@ function (F::Residual)(r::MultiVector, z::MultiVector)
     #      r_m = S(s) φ_τ(u_m)
     nshifts(z) > 0 && shift!(F.P, _tail(r.X), _shifts(z))
 
-    # ---- each end point in the row of the seed it has to reach, minus the seeds ----
-    #      rᵢ₊₁ = φ_τ(uᵢ) - uᵢ₊₁,   r₁ = S(s) φ_τ(u_m) - u₁,   and a zero scalar part
-    _shift_forward!(r.X)
+    # ---- each end point in the row of the seed it has to reach ----
+    #      rᵢ₊₁ = φ_τ(uᵢ),   r₁ = S(s) φ_τ(u_m)
+    shift_forward!(r.X)
+
+    # ---- minus the unknowns: the seeds, and the scalars, which r still holds from z, so that
+    #      the scalar part of the residual is zero ----
+    #      rᵢ₊₁ = φ_τ(uᵢ) - uᵢ₊₁,   r₁ = S(s) φ_τ(u_m) - u₁,   r.d = z.d - z.d = 0
     r .= r .- z
 
     return r

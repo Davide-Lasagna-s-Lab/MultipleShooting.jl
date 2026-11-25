@@ -100,7 +100,7 @@ mutable struct Subspace{PT, ZT<:MultiVector, A, B}
         _orthonormalise!(V)
 
         # ---- the packed batch of a step, m k′ states ----
-        Vk′ = _similar(X, k′*m)
+        Vk′ = similar_states(X, k′*m)
 
         return new{typeof(P), typeof(z), typeof(X), typeof(Vk′)}(P,
                                                                  z,
@@ -164,7 +164,7 @@ function iterate!(S::Subspace)
     for a in 1:k′
         copyto!(S.V[a], _block(S.Vk′, a, m))
         nshifts(z) > 0 && shift!(S.P, _tail(S.V[a]), _shifts(z))
-        _shift_forward!(S.V[a])
+        shift_forward!(S.V[a])
     end
 
     # ---- the Galerkin blocks of the bases before the step, from the images ----

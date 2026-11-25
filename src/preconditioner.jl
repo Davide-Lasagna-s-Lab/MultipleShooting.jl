@@ -180,7 +180,7 @@ function _assemble!(M::Preconditioner)
     #      last segment; f and the generators at the first seed ----
     #      Fᵢ₊₁ = f(φ_τ(uᵢ)),   F₁ = f(S(s) φ_τ(u_m)),   Gⱼ = gⱼ(S(s) φ_τ(u_m)),
     #      f₁ = f(u₁),   g₁ⱼ = gⱼ(u₁)
-    F  = _shift_forward!(rhs!(P, similar(X), X))
+    F  = shift_forward!(rhs!(P, similar(X), X))
     G  = [dshift!(P, similar(_tail(X)), _tail(X), j) for j in 1:ns]
     f₁ = rhs!(P, similar(_head(z.X)), _head(z.X))
     g₁ = [dshift!(P, similar(_head(z.X)), _head(z.X), j) for j in 1:ns]
@@ -288,7 +288,7 @@ function LinearAlgebra.ldiv!(out::MultiVector, M::Preconditioner, v::MultiVector
     #      outᵢ = -vᵢ + Σₐ (gᵢᵃ + yᵢᵃ) uᵢᵃ
     out .= .-v
     for a in 1:k′
-        c = _coefficients(v.X, [g[(i - 1)*k′ + a] + y[(i - 1)*k′ + a] for i in 1:m])
+        c = coefficients(v.X, [g[(i - 1)*k′ + a] + y[(i - 1)*k′ + a] for i in 1:m])
         out.X .+= c .* S.U[a]
     end
 

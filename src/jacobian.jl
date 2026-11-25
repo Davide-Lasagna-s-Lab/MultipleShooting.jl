@@ -145,7 +145,7 @@ function LinearAlgebra.mul!(out::MultiVector, J::Jacobian, v::MultiVector)
 
     # ---- each row in the row of the seed it has to reach, minus the vector ----
     #      outᵢ₊₁ = ψᵢ vᵢ + δτ f(φ_τ(uᵢ)) - vᵢ₊₁,   out₁ = S(s) ψ_m v_m + … - v₁
-    _shift_forward!(out.X)
+    shift_forward!(out.X)
     out .= out .- v
 
     # ---- the phase conditions, in time and in space ----
