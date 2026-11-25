@@ -24,8 +24,8 @@ with the inner product ⟨z, w⟩ = Σᵢ ⟨uᵢ, wᵢ⟩ + Σⱼ dⱼ d′ⱼ,
 broadcasts like a vector, `w .= α .* z .+ w`, on the seeds and the scalars separately.
 
 # Arguments
-- `X`: the seeds, m states, of a type of the caller's with the methods that interface.jl asks
-  of the seeds: an array of numbers, a [`Batched`](@ref), has them.
+- `X`: the seeds, m states, of a type with the methods that interface.jl asks of the seeds: an
+  array of numbers, a [`Batched`](@ref), a [`Sliced`](@ref), or a type of the caller's.
 - `d::Vector{Float64}`: the scalars `[T, s₁, s₂, …]`, the period followed by one shift per
   continuous symmetry, `[T]` for a periodic orbit. [`period`](@ref), [`nshifts`](@ref) and
   [`shift`](@ref) read them.

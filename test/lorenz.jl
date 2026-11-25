@@ -104,7 +104,7 @@ MultipleShooting.dpropagate!(P::LorenzPropagator, X::Batched, V::Batched, τ::Re
 
 MultipleShooting.rhs!(P::LorenzPropagator, F::Batched, X::Batched) = lorenz_rhs!(F, X, P.ρ)
 
-# ---- the Sliced of sliced.jl: one state at a time ----
+# ---- a Sliced: one state at a time ----
 MultipleShooting.propagate!(P::LorenzPropagator, X::Sliced, τ::Real) =
     (foreach(x -> advance!(_rhs(P), x, τ, P.dt), X); X)
 

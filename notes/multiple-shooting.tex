@@ -183,9 +183,10 @@ or on a GPU, or one after the other. A batch comes in one of two layouts, sketch
 figure~\ref{fig:batches}. In the batched layout it is one array of numbers whose last dimension
 runs over the states, such as an $n \times m$ matrix for vectors or an $N_x \times N_y \times m$
 array for fields on a grid. In the sliced layout it is a vector of $m$ arrays, one per state, of
-any shape. The code does not know the layout: its few functions on a batch are written for an
-array, the batched layout, and a batch of another kind, such as the sliced one, gives its own
-methods of them, with the inner product \code{dots} of its states.
+any shape. The few functions that the code calls on a batch are declared in general, with
+methods for the two layouts, an array of numbers, \code{Batched}, and the type \code{Sliced},
+which wraps a vector of states; a batch of another kind gives its own, with the inner product
+\code{dots} of its states.
 
 \begin{figure}
   \centering

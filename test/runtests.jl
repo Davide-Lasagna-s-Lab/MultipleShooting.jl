@@ -5,7 +5,6 @@ using LinearAlgebra
 using Random
 using Test
 
-include(joinpath(@__DIR__, "sliced.jl"))
 include(joinpath(@__DIR__, "lorenz.jl"))
 include(joinpath(@__DIR__, "cycles.jl"))
 include(joinpath(@__DIR__, "ks.jl"))
@@ -20,7 +19,7 @@ guess = MultiVector([-4.3916429753   4.5595009656   3.6883670592  -3.8671374687;
                       2.1325664921   7.9944849552  -1.9178392035  -6.9073223838;
                      30.6127436095  12.6485708665  29.3130502493  11.6370396562], [1.57])
 
-# the same vector with a batch that is not an array, the Sliced of sliced.jl, a vector of states
+# the same vector with seeds that are not an array, a Sliced, a vector of states
 sliced(z) = MultiVector(Sliced(collect.(eachcol(z.X))), copy(z.d))
 
 # the search from z, overwritten with the orbit
@@ -568,10 +567,11 @@ end
     @test dot(z, w) ≈ real(dot(vec(z.X), vec(w.X))) + 0.75
     @test dot(sliced(z), sliced(w)) ≈ dot(z, w)
 
-    # ---- a product of its own, that of the batch: the Sliced of the tests with a weight on every
-    #      coordinate, kept by the vectors made from it ----
-    q = [1.0, 2.0, 3.0]
-    z = MultiVector(Sliced(collect.(eachcol(guess.X)), q), copy(guess.d))
+    # ---- a product of its own, that of the seeds: a Sliced with a weight on every coordinate,
+    #      kept by the vectors made from it ----
+    q    = [1.0, 2.0, 3.0]
+    wdot = (x, y) -> sum(q .* x .* y)
+    z = MultiVector(Sliced(collect.(eachcol(guess.X)); dot=wdot), copy(guess.d))
     w = similar(z)
     w .= 2 .* z
     @test dot(z, w) ≈ 2*(sum(q .* guess.X.^2) + period(guess)^2)
@@ -581,7 +581,7 @@ end
     # ---- the search of AB with it: the same orbit, and a phase condition in the same product ----
     @test search!(z).status === :converged
     @test abs(period(z) - period(ab)) < 1e-8
-    v = MultiVector(Sliced(collect.(eachcol(randn(3, 4))), q), [0.3])
+    v = MultiVector(Sliced(collect.(eachcol(randn(3, 4))); dot=wdot), [0.3])
     f = lorenz_rhs!(zeros(3), z.X[1], L.ρ)
     @test period(Jacobian(L, z)*v) ≈ sum(q .* f .* v.X[1])
     @test period(JacobianFD(L, z)*v) ≈ sum(q .* f .* v.X[1])

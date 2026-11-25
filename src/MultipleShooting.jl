@@ -24,6 +24,7 @@ export propagate!,
        dots,
        coefficients,
        Batched,
+       Sliced,
        MultiVector,
        period,
        nshifts,
@@ -44,6 +45,7 @@ export propagate!,
 
 include("interface.jl")
 include("batched.jl")
+include("sliced.jl")
 include("multivector.jl")
 include("residual.jl")
 include("jacobian.jl")

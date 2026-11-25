@@ -1,11 +1,13 @@
 # The interface: what multiple shooting needs from the caller. Two things, both of types of the
-# caller's choice, of which the package assumes nothing: the seeds, and the propagator. The
-# package gives no method of the functions of this file, but the default of dpropagate!: the
-# caller writes them for its types.
+# caller's choice, of which the package assumes nothing: the seeds, and the propagator. This file
+# declares their functions, with no method but the default of dpropagate!. Those of the seeds have
+# methods for two kinds of them, an array of numbers, a Batched (batched.jl), and a vector of
+# states, a Sliced (sliced.jl); for seeds of another kind, and for the propagator, the caller
+# writes them.
 #
 # The seeds. X holds states, m of them: the seeds of the segments, or vectors attached to them,
 # one per seed. What X is, an array on a CPU or on a GPU, a vector of states, a type of the
-# caller's, the package does not know. It only moves the states about, by
+# caller's, the rest of the package does not know. It only moves the states about, by
 #
 #     nsegments(X)            the number of states of X
 #     states(X, r)            the states r of X, as an X that shares them
