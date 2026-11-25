@@ -298,7 +298,11 @@ end
 #     V[b] .-= c .* U[a]        at every point i, vᵢᵇ ← vᵢᵇ - cᵢ uᵢᵃ
 #
 # The inner product is that of the seeds, dots, with its weights if it has them. Only the
-# coefficients go to the host, m numbers a pair, into the k′ × k′ × m arrays of the small matrices.
+# coefficients go to the host, m numbers a pair, into the k′ × k′ × m arrays of the small matrices,
+# by `vec(Array(c))`. dots gives its m numbers in the form that broadcasts against the seeds, and
+# where they live: for an array, one with every dimension of size one but the last, 1 × m or
+# 1 × 1 × m, on a GPU if the seeds are. `Array` copies them to the host, and `vec` makes of them
+# a plain vector of m numbers, as an index over the points needs.
 
 # The Galerkin blocks of the bases U before a step, from their images V, taken before
 # Gram–Schmidt. The step has rolled the images forward, so that V[b] holds at point j the image
@@ -318,7 +322,9 @@ function _galerkin!(E::Array{Float64, 3}, U::Vector, V::Vector)
     k′ = length(U)
 
     for a in 1:k′, b in 1:k′
-        # ---- at every point j, the coordinate along uⱼᵃ of the image that reaches it ----
+        # ---- at every point j, the coordinate along uⱼᵃ of the image that reaches it, on the
+        #      host as a vector of m numbers: without vec the shift below would run along a
+        #      dimension of size one, and move nothing ----
         #      cⱼ = ⟨uⱼᵃ, ψⱼ₋₁ uⱼ₋₁ᵇ⟩,   j = 1, …, m
         c = vec(Array(dots(U[a], V[b])))
 
@@ -422,7 +428,8 @@ function _gram_schmidt!(V::Vector)
 
     for a in 1:k′
         # ---- direction a minus its components along the directions before it, one after the
-        #      other, at every point ----
+        #      other, at every point. c stays where the seeds are for the subtraction, and goes to
+        #      the host, as a vector over the points, for R ----
         #      cᵢ = ⟨qᵢᵇ, vᵢᵃ⟩,   vᵢᵃ ← vᵢᵃ - cᵢ qᵢᵇ,   (Rᵢ)ᵦₐ = cᵢ,   b = 1, …, a - 1
         for b in 1:a-1
             c = dots(V[b], V[a])
@@ -430,7 +437,7 @@ function _gram_schmidt!(V::Vector)
             R[b, a, :] .= vec(Array(c))
         end
 
-        # ---- direction a normalised at every point ----
+        # ---- direction a normalised at every point, and the norms to the host likewise ----
         #      nᵢ = ‖vᵢᵃ‖,   qᵢᵃ = vᵢᵃ/nᵢ,   (Rᵢ)ₐₐ = nᵢ
         n = sqrt.(dots(V[a], V[a]))
         V[a] ./= max.(n, floatmin(Float64))

@@ -185,7 +185,9 @@ function _assemble!(M::Preconditioner)
     f₁ = rhs!(P, similar(head(z.X)), head(z.X))
     g₁ = [dshift!(P, similar(head(z.X)), head(z.X), j) for j in 1:ns]
 
-    # ---- the projections on the bases, one per seed, brought to the host ----
+    # ---- the projections on the bases, one per seed, brought to the host: dots gives them
+    #      where the seeds are and in the form that broadcasts against them, Array copies them
+    #      to the host and vec makes a vector over the seeds of them ----
     #      Uᵢᵀ Fᵢ at every seed, f₁ᵀ U₁, U₁ᵀ Gⱼ and g₁ⱼᵀ U₁ at the first seed
     pf = [vec(Array(dots(S.U[a], F))) for a in 1:k′]
     ff = [_dot(f₁, head(S.U[a])) for a in 1:k′]
@@ -248,7 +250,8 @@ function _solve(M::Preconditioner, g::AbstractVecOrMat)
 end
 
 # the coefficients Wᵀ v: the coordinates of every seed in its basis, direction by direction, then
-# the period and the shifts
+# the period and the shifts. c[a] holds those of direction a at every seed, on the host as a
+# vector, by vec(Array(…)) of what dots gives
 function _restrict(M::Preconditioner, v::ShootingVector)
     k′ = length(M.S.U)
     c  = [vec(Array(dots(M.S.U[a], v.X))) for a in 1:k′]
