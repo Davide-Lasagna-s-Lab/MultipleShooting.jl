@@ -174,23 +174,23 @@ function _assemble!(M::Preconditioner)
     # ---- the end points left by the subspace step, the end of the last segment shifted ----
     #      Xᵢ = φ_τ(uᵢ),   X_m = S(s) φ_τ(u_m)
     X = copy(S.tmp)
-    ns > 0 && shift!(P, _tail(X), shifts(z))
+    ns > 0 && shift!(P, tail(X), shifts(z))
 
     # ---- f there, each in the row of the seed it reaches, and the generators at the end of the
     #      last segment; f and the generators at the first seed ----
     #      Fᵢ₊₁ = f(φ_τ(uᵢ)),   F₁ = f(S(s) φ_τ(u_m)),   Gⱼ = gⱼ(S(s) φ_τ(u_m)),
     #      f₁ = f(u₁),   g₁ⱼ = gⱼ(u₁)
     F  = roll_forward!(rhs!(P, similar(X), X))
-    G  = [dshift!(P, similar(_tail(X)), _tail(X), j) for j in 1:ns]
-    f₁ = rhs!(P, similar(_head(z.X)), _head(z.X))
-    g₁ = [dshift!(P, similar(_head(z.X)), _head(z.X), j) for j in 1:ns]
+    G  = [dshift!(P, similar(tail(X)), tail(X), j) for j in 1:ns]
+    f₁ = rhs!(P, similar(head(z.X)), head(z.X))
+    g₁ = [dshift!(P, similar(head(z.X)), head(z.X), j) for j in 1:ns]
 
     # ---- the projections on the bases, one per seed, brought to the host ----
     #      Uᵢᵀ Fᵢ at every seed, f₁ᵀ U₁, U₁ᵀ Gⱼ and g₁ⱼᵀ U₁ at the first seed
     pf = [vec(Array(dots(S.U[a], F))) for a in 1:k′]
-    ff = [_dot(f₁, _head(S.U[a])) for a in 1:k′]
-    pg = [_dot(_head(S.U[a]), G[j]) for a in 1:k′, j in 1:ns]
-    gg = [_dot(g₁[j], _head(S.U[a])) for a in 1:k′, j in 1:ns]
+    ff = [_dot(f₁, head(S.U[a])) for a in 1:k′]
+    pg = [_dot(head(S.U[a]), G[j]) for a in 1:k′, j in 1:ns]
+    gg = [_dot(g₁[j], head(S.U[a])) for a in 1:k′, j in 1:ns]
 
     # ---- the entries ----
     Is = Int[]

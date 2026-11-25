@@ -59,7 +59,7 @@ mutable struct Jacobian{PT, V<:MultiVector, A, H}
         # ---- the storage, filled by update! ----
         tmp = similar(z.X)
         F = similar(z.X)
-        f = similar(_head(z.X))
+        f = similar(head(z.X))
         G = typeof(f)[similar(f) for _ in 1:nshifts(z)]
         g = typeof(f)[similar(f) for _ in 1:nshifts(z)]
 
@@ -101,15 +101,15 @@ function NKRoots.update!(J::Jacobian, z::MultiVector)
 
     # ---- the end of the last segment shifted, and its derivative with it ----
     if nshifts(z) > 0
-        shift!(J.P, _tail(J.tmp), shifts(z))
-        shift!(J.P, _tail(J.F), shifts(z))
+        shift!(J.P, tail(J.tmp), shifts(z))
+        shift!(J.P, tail(J.F), shifts(z))
     end
 
     # ---- f and the generators at the end of the last segment, and at the first seed ----
-    rhs!(J.P, J.f, _head(z.X))
+    rhs!(J.P, J.f, head(z.X))
     for j in 1:nshifts(z)
-        dshift!(J.P, J.G[j], _tail(J.tmp), j)
-        dshift!(J.P, J.g[j], _head(z.X), j)
+        dshift!(J.P, J.G[j], tail(J.tmp), j)
+        dshift!(J.P, J.g[j], head(z.X), j)
     end
 
     return J
@@ -133,13 +133,13 @@ function LinearAlgebra.mul!(out::MultiVector, J::Jacobian, v::MultiVector)
 
     # ---- the end of the last segment shifted ----
     #      out_m = S(s) ψ_m v_m
-    nshifts(J.z) > 0 && shift!(J.P, _tail(out.X), shifts(J.z))
+    nshifts(J.z) > 0 && shift!(J.P, tail(out.X), shifts(J.z))
 
     # ---- plus the period column, and the shift columns at the end of the last segment ----
     #      outᵢ += δT Fᵢ, Fᵢ = (1/m) ∂φ_τ(uᵢ)/∂τ,   out_m += Σⱼ δsⱼ gⱼ(S(s) φ_τ(u_m))
     out.X .+= δT .* J.F
     for j in 1:nshifts(J.z)
-        _tail(out.X) .+= shift(v, j) .* J.G[j]
+        tail(out.X) .+= shift(v, j) .* J.G[j]
     end
 
     # ---- each row in the row of the seed it has to reach, minus the vector ----
@@ -149,9 +149,9 @@ function LinearAlgebra.mul!(out::MultiVector, J::Jacobian, v::MultiVector)
 
     # ---- the phase conditions, in time and in space ----
     #      d₁ = ⟨f(u₁), v₁⟩,   d₁₊ⱼ = ⟨gⱼ(u₁), v₁⟩
-    out.d[1] = _dot(J.f, _head(v.X))
+    out.d[1] = _dot(J.f, head(v.X))
     for j in 1:nshifts(J.z)
-        out.d[1 + j] = _dot(J.g[j], _head(v.X))
+        out.d[1 + j] = _dot(J.g[j], head(v.X))
     end
 
     return out

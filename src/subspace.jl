@@ -153,7 +153,7 @@ function iterate!(S::Subspace)
     #      of the last segment, shifted, to point 1 ----
     #      V[a] = (S(s) ψ_m v_mᵃ, ψ₁ v₁ᵃ, …, ψ_{m-1} v_{m-1}ᵃ)
     for a in 1:k′
-        nshifts(z) > 0 && shift!(S.P, _tail(S.V[a]), shifts(z))
+        nshifts(z) > 0 && shift!(S.P, tail(S.V[a]), shifts(z))
         roll_forward!(S.V[a])
     end
 
@@ -344,7 +344,7 @@ end
 # column that vanishes at a point stays zero there, with a zero on the diagonal of R
 function _gram_schmidt!(V::Vector)
     k′ = length(V)
-    m  = nstates(first(V))
+    m  = nsegments(first(V))
     R  = zeros(k′, k′, m)
 
     for a in 1:k′

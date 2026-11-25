@@ -1,15 +1,15 @@
-# The unknowns of multiple shooting: the seeds u₁, …, u_m, a batch of states, and the scalars, the
-# period T and one shift per continuous symmetry. They form one vector, with the inner product
+# The unknowns of multiple shooting: the seeds u₁, …, u_m, in whatever the caller holds them, and
+# the scalars, the period T and one shift per continuous symmetry. They form one vector, with the inner product
 #
 #     ⟨z, w⟩ = Σᵢ ⟨uᵢ, vᵢ⟩ + Σⱼ dⱼ d'ⱼ,
 #
-# where ⟨uᵢ, vᵢ⟩ is the inner product of two states, that of the batches of the seeds, dots (see
-# batch.jl): GMRES, the phase conditions, the bases of the subspace iteration and the
+# where ⟨uᵢ, vᵢ⟩ is the inner product of two states, that of the seeds, dots (see
+# interface.jl): GMRES, the phase conditions, the bases of the subspace iteration and the
 # preconditioner all take it from there, so that they share one geometry.
 #
 # Broadcasting acts on the two parts separately: an expression such as w .= α .* z .+ β .* w is
 # split into w.X .= α .* z.X .+ β .* w.X on the seeds and w.d .= α .* z.d .+ β .* w.d on the
-# scalars. The seeds broadcast as their batch does, an array as one array, on whatever device it
+# scalars. The seeds broadcast as their type does, an array as one array, on whatever device it
 # lives.
 
 """
@@ -24,28 +24,21 @@ with the inner product ⟨z, w⟩ = Σᵢ ⟨uᵢ, wᵢ⟩ + Σⱼ dⱼ d′ⱼ,
 broadcasts like a vector, `w .= α .* z .+ w`, on the seeds and the scalars separately.
 
 # Arguments
-- `X`: the seeds, a batch of m states, as it is: an array whose last dimension runs over the
-  states, or a batch of the caller's (see batch.jl).
+- `X`: the seeds, m states, of a type of the caller's with the methods that interface.jl asks
+  of the seeds: an array of numbers, a [`Batched`](@ref), has them.
 - `d::Vector{Float64}`: the scalars `[T, s₁, s₂, …]`, the period followed by one shift per
   continuous symmetry, `[T]` for a periodic orbit. [`period`](@ref), [`nshifts`](@ref) and
   [`shift`](@ref) read them.
 """
 struct MultiVector{A}
-    X::A               # the seeds, a batch of states
+    X::A               # the seeds
     d::Vector{Float64} # the scalars: the period, then the shifts
 
     MultiVector(X, d::AbstractVector) = new{typeof(X)}(X, convert(Vector{Float64}, d))
 end
 
-"""
-    nsegments(z::MultiVector) -> Int
-
-The number of segments of the orbit, that of the seeds of `z`.
-
-# Arguments
-- `z::MultiVector`: the unknowns.
-"""
-nsegments(z::MultiVector) = nstates(z.X)
+# the number of segments of the orbit, that of the seeds
+nsegments(z::MultiVector) = nsegments(z.X)
 
 # ---- the scalars: d[1] is the period, d[2:end] the shifts ----
 """

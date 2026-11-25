@@ -1,6 +1,6 @@
 # A batch that is not an array, for the tests: a vector of states, each an array of its own,
 # advanced one at a time, with weights on the coordinates of a state in its inner product. It
-# gives the methods that MultipleShooting asks of a batch (src/batch.jl) and those of Base that
+# gives the methods that MultipleShooting asks of a batch (src/interface.jl) and those of Base that
 # the package calls on one, and it broadcasts state by state.
 import Random
 
@@ -17,7 +17,7 @@ Base.getindex(X::Sliced, i::Int) = X.states[i]
 Base.iterate(X::Sliced, s...)    = iterate(X.states, s...)
 
 # ---- what MultipleShooting asks of a batch ----
-MultipleShooting.nstates(X::Sliced) = length(X.states)
+MultipleShooting.nsegments(X::Sliced) = length(X.states)
 
 MultipleShooting.dots(X::Sliced, Y::Sliced) =
     map((x, y) -> sum(X.q .* real.(conj.(x) .* y)), X.states, Y.states)

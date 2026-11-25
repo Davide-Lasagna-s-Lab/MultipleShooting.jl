@@ -41,7 +41,7 @@ mutable struct JacobianFD{PT, V<:MultiVector, D, H}
         D = NKRoots.jacobianFD(Residual(P), z; difference=difference, ϵ=ϵ)
 
         # ---- the storage of the phase rows, filled by update! ----
-        f = similar(_head(z.X))
+        f = similar(head(z.X))
         g = typeof(f)[similar(f) for _ in 1:nshifts(z)]
 
         J = new{typeof(P), typeof(z), typeof(D), typeof(f)}(P,
@@ -73,9 +73,9 @@ function NKRoots.update!(J::JacobianFD, z::MultiVector, r::MultiVector)
     NKRoots.update!(J.D, z, r)
 
     # ---- f and the generators at the first seed, the phase rows ----
-    rhs!(J.P, J.f, _head(z.X))
+    rhs!(J.P, J.f, head(z.X))
     for j in 1:nshifts(z)
-        dshift!(J.P, J.g[j], _head(z.X), j)
+        dshift!(J.P, J.g[j], head(z.X), j)
     end
 
     return J
@@ -90,9 +90,9 @@ function LinearAlgebra.mul!(out::MultiVector, J::JacobianFD, v::MultiVector)
 
     # ---- the phase conditions, in time and in space ----
     #      d₁ = ⟨f(u₁), v₁⟩,   d₁₊ⱼ = ⟨gⱼ(u₁), v₁⟩
-    out.d[1] = _dot(J.f, _head(v.X))
+    out.d[1] = _dot(J.f, head(v.X))
     for j in 1:nshifts(J.z)
-        out.d[1 + j] = _dot(J.g[j], _head(v.X))
+        out.d[1 + j] = _dot(J.g[j], head(v.X))
     end
 
     return out
