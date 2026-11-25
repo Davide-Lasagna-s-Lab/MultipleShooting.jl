@@ -49,8 +49,8 @@ include("jacobian_fd.jl")
 include("subspace.jl")
 include("preconditioner.jl")
 include("gmres.jl")
-include("sensitivity.jl")
-include("parameter.jl")
-include("continuation.jl")
+include("sensitivity/sensitivity.jl")
+include("continuation/parameter.jl")
+include("continuation/continuation.jl")
 
 end

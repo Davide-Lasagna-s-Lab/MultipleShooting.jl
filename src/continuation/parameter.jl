@@ -9,7 +9,7 @@
 #
 # with J the Jacobian at the parameter p and c the column of the parameter, from the tangent
 # equation forced by the derivative of the right-hand side in p, as for the sensitivity
-# (sensitivity.jl), or from a central difference of the residual in p. Their solutions form a
+# (sensitivity/sensitivity.jl), or from a central difference of the residual in p. Their solutions form a
 # line, along the null vector n of [J c],
 # which at an orbit is the tangent of its branch. The search takes the shortest one, at right
 # angles to n, the solution of the bordered system
@@ -114,7 +114,7 @@ function _free!(family, z::MultiVector, p::Real, t::MultiVector;   precond=nothi
                                                                        tol::Real=1e-10,
                                                                    maxiter::Int=100,
                                                                     bounds=(-Inf, Inf),
-                                                                         α::Real=2,
+                                                                   periods=(0.0, Inf),
                                                                          ϵ::Real=1e-6,
                                                                 krylov_tol::Real=1e-3,
                                                                 krylov_dim::Int=200)
@@ -122,9 +122,7 @@ function _free!(family, z::MultiVector, p::Real, t::MultiVector;   precond=nothi
     column in (:forced, :difference) ||
         throw(ArgumentError("column must be :forced or :difference"))
 
-    # ---- the residual, with the periods within a factor α of that of the guess ----
-    T₀     = period(z)
-    F!     = residual === nothing ? (r, u, q) -> Residual(family(q), T₀; α=α)(r, u) : residual
+    F!     = residual === nothing ? (r, u, q) -> Residual(family(q); bounds=periods)(r, u) : residual
     J      = Jacobian(family(p), z)
     r      = F!(similar(z), z, p)
     zn     = similar(z)
@@ -184,7 +182,7 @@ end
 
 """
     freesearch!(family, z, p; precond=nothing, column=:forced, tol=1e-10, maxiter=100,
-                bounds=(-Inf, Inf), α=2, ϵ=1e-6, krylov_tol=1e-3, krylov_dim=200)
+                bounds=(-Inf, Inf), periods=(0.0, Inf), ϵ=1e-6, krylov_tol=1e-3, krylov_dim=200)
                 -> (; status, iter, res, p)
 
 The search for an orbit with a parameter of the equation as one more unknown, from the guess `z`
@@ -214,8 +212,7 @@ parameter is weighed by its scale in `family`.
 - `maxiter::Int=100`: the most iterations.
 - `bounds=(-Inf, Inf)`: the least and the largest parameter, both excluded. A trial step outside
   is refused.
-- `α::Real=2`: the factor of the period of the guess within which a trial period is kept, as
-  that of [`Residual`](@ref).
+- `periods=(0.0, Inf)`: the same for the period, as the `bounds` of [`Residual`](@ref).
 - `ϵ::Real=1e-6`: the step of the central difference in `p`, for `column=:difference`.
 - `krylov_tol::Real=1e-3`: the relative residual of GMRES.
 - `krylov_dim::Int=200`: the most iterations of GMRES.

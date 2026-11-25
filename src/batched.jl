@@ -8,13 +8,13 @@ _euclidean(A::AbstractArray{<:Number}, B::AbstractArray{<:Number}) =
     sum(real.(conj.(A) .* B); dims=1:ndims(A) - 1)
 
 # a batch like X with its entries not set, of the array type that similar gives, and a copy
-_similar(X::Batched{M, K}) where {M, K} = rewrap(X, similar(parent(X)), K)
-_copy(X::Batched{M, K}) where {M, K}    = rewrap(X, copy(parent(X)), K)
+_similar(X::Batched{M, L}) where {M, L} = rewrap(X, similar(parent(X)), L)
+_copy(X::Batched{M, L}) where {M, L}    = rewrap(X, copy(parent(X)), L)
 
-# a batch like X of M′ seeds in K′ blocks, its entries not set, of the array type that similar
+# a batch like X of M′ seeds in L′ blocks, its entries not set, of the array type that similar
 # gives for the new size, which a propagator must be able to advance
-_similar(X::Batched, M′::Int, K′::Int) =
-    rewrap(X, similar(parent(X), eltype(X), (Base.front(size(X))..., M′*K′)), K′)
+_similar(X::Batched, M′::Int, L′::Int) =
+    rewrap(X, similar(parent(X), eltype(X), (Base.front(size(X))..., M′*L′)), L′)
 
 # random entries
 _randn!(X::Batched) = (Random.randn!(parent(X)); X)

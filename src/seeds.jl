@@ -5,63 +5,63 @@
 #               advance the whole array at once
 #     sliced    a vector of states, each an array of any shape, advanced one at a time
 #
-# A batch is an AbstractSeeds{M, K}: the states at M seeds, the shooting points, K at each, in K
+# A batch is an AbstractSeeds{M, L}: the states at M seeds, the shooting points, L at each, in L
 # blocks of M one after the other, block a the states (a - 1)M + 1 to aM,
 #
-#     X = (x₁¹, …, x_M¹, x₁², …, x_M², …, x₁ᴷ, …, x_Mᴷ).
+#     X = (x₁¹, …, x_M¹, x₁², …, x_M², …, x₁ᴸ, …, x_Mᴸ).
 #
-# The seeds are a batch of one block, K = 1, and the k′ directions of a subspace step at every seed
+# The seeds are a batch of one block, L = 1, and the k′ directions of a subspace step at every seed
 # a batch of k′ blocks, block a direction a, as tangents! takes them. A batch wraps the array of
 # its states, which parent gives, and broadcasts as that array does. Besides broadcasting, the
 # operations of this file and of the two of the layouts, batched.jl and sliced.jl, are the only
 # ones the code makes on a batch, all on that array.
 
 """
-    AbstractSeeds{M, K, T, N} <: AbstractArray{T, N}
+    AbstractSeeds{M, L, T, N} <: AbstractArray{T, N}
 
-A batch of the states at `M` seeds, `K` at each, in `K` blocks of `M`: block a holds the states
+A batch of the states at `M` seeds, `L` at each, in `L` blocks of `M`: block a holds the states
 (a - 1)M + 1 to aM, one at every seed. The seeds of multiple shooting are an
 `AbstractSeeds{M, 1}`, and the k′ directions of a subspace step at every seed an
 `AbstractSeeds{M, k′}`, so that the sizes are in the types, as in
-`tangents!(P, X::AbstractSeeds{M, 1}, V::AbstractSeeds{M, K}, τ)`.
+`tangents!(P, X::AbstractSeeds{M, 1}, V::AbstractSeeds{M, L}, τ)`.
 
 [`Seeds`](@ref) wraps any array. A package gives its own subtype for its states, with the methods
 
     parent(X)            the array of the states, batched or sliced
-    rewrap(X, data, K)   a batch like X on the array data, of the same layout, in K blocks
+    rewrap(X, data, L)   a batch like X on the array data, of the same layout, in L blocks
     dots(X, Y)           the inner products of the states, one per state, Euclidean by default
 
 and it broadcasts as its array, unless it gives its own broadcasting.
 """
-abstract type AbstractSeeds{M, K, T, N} <: AbstractArray{T, N} end
+abstract type AbstractSeeds{M, L, T, N} <: AbstractArray{T, N} end
 
 """
-    Batched{M, K}
+    Batched{M, L}
 
 An [`AbstractSeeds`](@ref) in the batched layout: its array is an array of numbers whose last
 dimension runs over the states. A propagator dispatches on it to advance all the states at once.
 """
-const Batched{M, K} = AbstractSeeds{M, K, <:Number}
+const Batched{M, L} = AbstractSeeds{M, L, <:Number}
 
 """
-    Sliced{M, K}
+    Sliced{M, L}
 
 An [`AbstractSeeds`](@ref) in the sliced layout: its array is a vector of states, each an array
 of any shape. A propagator dispatches on it to advance the states one at a time.
 """
-const Sliced{M, K} = AbstractSeeds{M, K, <:AbstractArray, 1}
+const Sliced{M, L} = AbstractSeeds{M, L, <:AbstractArray, 1}
 
 """
-    Seeds(data; k=1, dots=nothing)
+    Seeds(data; L=1, dots=nothing)
 
-The states in the array `data` as a batch of `k` blocks, an `AbstractSeeds{M, k}` with M the
-number of states over k: [`Batched`](@ref) for an array of numbers whose last dimension runs over
+The states in the array `data` as a batch of `L` blocks, an `AbstractSeeds{M, L}` with M the
+number of states over L: [`Batched`](@ref) for an array of numbers whose last dimension runs over
 the states, [`Sliced`](@ref) for a vector of states. It keeps `data`, not copied, which `parent`
 returns, and broadcasts as it.
 
 # Arguments
 - `data`: the states.
-- `k::Int=1`: the number of blocks, the states at every seed.
+- `L::Int=1`: the number of blocks, the states at every seed.
 - `dots=nothing`: the inner product of the states, a function `(A, B) -> c` of the arrays of two
   batches that gives the products of their states one by one, real: for the batched layout an
   array whose last dimension runs over the states and the others have size one, so that it
@@ -69,21 +69,21 @@ returns, and broadcasts as it.
   numbers of a state when not given, the real part for complex ones. The batches made from this
   one keep it.
 """
-struct Seeds{M, K, T, N, A<:AbstractArray{T, N}, D} <: AbstractSeeds{M, K, T, N}
+struct Seeds{M, L, T, N, A<:AbstractArray{T, N}, D} <: AbstractSeeds{M, L, T, N}
     data::A # the states, along the last dimension of an array or in a vector
     dots::D # the inner products of the states of two arrays like data, one per state
 
-    function Seeds(data::AbstractArray; k::Int=1, dots=nothing)
+    function Seeds(data::AbstractArray; L::Int=1, dots=nothing)
         n = _nstates(data)
 
         # ---- input checks ----
-        n % k == 0 ||
-            throw(ArgumentError("$(n) states do not make $(k) blocks"))
+        n % L == 0 ||
+            throw(ArgumentError("$(n) states do not make $(L) blocks"))
 
         # ---- the inner product: the Euclidean one unless another is given ----
         dots = something(dots, _euclidean)
 
-        return new{n ÷ k, k, eltype(data), ndims(data), typeof(data), typeof(dots)}(data,
+        return new{n ÷ L, L, eltype(data), ndims(data), typeof(data), typeof(dots)}(data,
                                                                                     dots)
     end
 end
@@ -91,19 +91,19 @@ end
 """
     nsegments(X)
 
-The number of seeds of a batch, `M` of an [`AbstractSeeds`](@ref)`{M, K}`: the number of its
-states when it is a batch of seeds, `K = 1`.
+The number of seeds of a batch, `M` of an [`AbstractSeeds`](@ref)`{M, L}`: the number of its
+states when it is a batch of seeds, `L = 1`.
 """
 nsegments(::AbstractSeeds{M}) where {M} = M
 
 """
-    rewrap(X, data, K)
+    rewrap(X, data, L)
 
 A batch like `X`, of the same type up to its sizes, on the array `data` of the same layout, in
-`K` blocks: the method that a subtype of [`AbstractSeeds`](@ref) gives, by which the package makes
+`L` blocks: the method that a subtype of [`AbstractSeeds`](@ref) gives, by which the package makes
 views, copies and new batches of the sizes it needs.
 """
-rewrap(X::Seeds, data::AbstractArray, K::Int) = Seeds(data; k=K, dots=X.dots)
+rewrap(X::Seeds, data::AbstractArray, L::Int) = Seeds(data; L=L, dots=X.dots)
 
 """
     dots(X, Y) -> c
@@ -132,7 +132,7 @@ _dot(X, Y) = sum(dots(X, Y))
 # the array of the states, and a batch indexed as it
 Base.parent(X::Seeds) = X.data
 Base.size(X::AbstractSeeds) = size(parent(X))
-Base.IndexStyle(::Type{<:Seeds{M, K, T, N, A}}) where {M, K, T, N, A} = IndexStyle(A)
+Base.IndexStyle(::Type{<:Seeds{M, L, T, N, A}}) where {M, L, T, N, A} = IndexStyle(A)
 Base.@propagate_inbounds Base.getindex(X::AbstractSeeds, I::Int...) = parent(X)[I...]
 Base.@propagate_inbounds Base.setindex!(X::AbstractSeeds, a, I::Int...) = (parent(X)[I...] = a)
 
@@ -171,12 +171,12 @@ _block(X::AbstractSeeds{M}, a::Int) where {M} = _states(X, ((a - 1)*M + 1):(a*M)
 _head(X::AbstractSeeds{M, 1}) where {M} = _states(X, 1:1)
 _tail(X::AbstractSeeds{M, 1}) where {M} = _states(X, M:M)
 
-# K copies of the seeds X, one after the other, as one batch of K blocks
-function _copies(X::AbstractSeeds{M, 1}, K::Int) where {M}
-    XK = _similar(X, M, K)
-    for a in 1:K
-        _copyto!(_block(XK, a), X)
+# L copies of the seeds X, one after the other, as one batch of L blocks
+function _copies(X::AbstractSeeds{M, 1}, L::Int) where {M}
+    XL = _similar(X, M, L)
+    for a in 1:L
+        _copyto!(_block(XL, a), X)
     end
 
-    return XK
+    return XL
 end

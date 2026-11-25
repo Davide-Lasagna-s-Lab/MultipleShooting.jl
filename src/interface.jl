@@ -125,8 +125,8 @@ gives its own method to integrate the states once for all the blocks.
   aM, overwritten with their images by the tangent maps.
 - `τ::Real`: the time.
 """
-function tangents!(P, X::AbstractSeeds{M, 1}, V::AbstractSeeds{M, K}, τ::Real) where {M, K}
-    Xk′ = _copies(X, K)
+function tangents!(P, X::AbstractSeeds{M, 1}, V::AbstractSeeds{M, L}, τ::Real) where {M, L}
+    Xk′ = _copies(X, L)
 
     # ---- every block along its own copy of the states ----
     tangent!(P, Xk′, V, τ)

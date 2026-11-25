@@ -19,7 +19,7 @@ The unknowns of multiple shooting, the seeds and the scalars,
 
     z = (u₁, …, u_m, T, s₁, …, s_c),
 
-with the inner product ⟨z, w⟩ = Σᵢ ⟨uᵢ, wᵢ⟩ + Σₖ dₖ d′ₖ, the sum of those of the states,
+with the inner product ⟨z, w⟩ = Σᵢ ⟨uᵢ, wᵢ⟩ + Σⱼ dⱼ d′ⱼ, the sum of those of the states,
 [`dots`](@ref) of the seeds, and of the scalars. The m segments have the same length, T/m. It
 broadcasts like a vector, `w .= α .* z .+ w`, on the seeds and the scalars separately.
 

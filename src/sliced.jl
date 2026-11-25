@@ -7,12 +7,12 @@ _euclidean(A::AbstractVector{<:AbstractArray}, B::AbstractVector{<:AbstractArray
     map((x, y) -> real(LinearAlgebra.dot(x, y)), A, B)
 
 # a batch like X with its entries not set, each state like that of X, and a copy
-_similar(X::Sliced{M, K}) where {M, K} = rewrap(X, map(similar, parent(X)), K)
-_copy(X::Sliced{M, K}) where {M, K}    = rewrap(X, map(copy, parent(X)), K)
+_similar(X::Sliced{M, L}) where {M, L} = rewrap(X, map(similar, parent(X)), L)
+_copy(X::Sliced{M, L}) where {M, L}    = rewrap(X, map(copy, parent(X)), L)
 
-# a batch like X of M′ seeds in K′ blocks, its entries not set, the states shaped as the first of X
-_similar(X::Sliced, M′::Int, K′::Int) =
-    rewrap(X, [similar(first(parent(X))) for _ in 1:M′*K′], K′)
+# a batch like X of M′ seeds in L′ blocks, its entries not set, the states shaped as the first of X
+_similar(X::Sliced, M′::Int, L′::Int) =
+    rewrap(X, [similar(first(parent(X))) for _ in 1:M′*L′], L′)
 
 # random entries
 _randn!(X::Sliced) = (foreach(Random.randn!, parent(X)); X)

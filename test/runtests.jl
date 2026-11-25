@@ -14,7 +14,7 @@ include(joinpath(@__DIR__, "data", "ks22.jl"))
 #      with a period between 1.4 and 1.7, where only AB lives, found once offline from (1, 1, 1)
 #      after a transient of 20, sampled every 0.01: a distance of 0.42 at T = 1.57 ----
 L     = LorenzPropagator(1e-3, 28.0)
-F     = Residual(L, 1.57)
+F     = Residual(L)
 guess = MultiVector(Seeds([-4.3916429753   4.5595009656   3.6883670592  -3.8671374687;
                       2.1325664921   7.9944849552  -1.9178392035  -6.9073223838;
                      30.6127436095  12.6485708665  29.3130502493  11.6370396562]), [1.57])
@@ -30,7 +30,7 @@ search!(z) = nkroot!(F, Jacobian(L, z), z; krylov_dim=20, krylov_tol=1e-8, Δ=1.
 #      periodic orbit in data/ks22.jl ----
 K = KSPropagator()
 
-ks_search!(z) = nkroot!(Residual(K, period(z)), Jacobian(K, z), z; krylov_dim=60, krylov_tol=1e-8, Δ=1.0,
+ks_search!(z) = nkroot!(Residual(K), Jacobian(K, z), z; krylov_dim=60, krylov_tol=1e-8, Δ=1.0,
                         tol=1e-10, maxiter=40, verbose=false)
 
 
@@ -81,11 +81,11 @@ ks_search!(z) = nkroot!(Residual(K, period(z)), Jacobian(K, z), z; krylov_dim=60
     @test_throws BoundsError shift(z, 3)
 
     # ---- the sizes in the types: M seeds and K blocks, and the unknowns only of seeds ----
-    V = Seeds(randn(4, 6); k=2)
+    V = Seeds(randn(4, 6); L=2)
     @test V isa AbstractSeeds{3, 2}
     @test nsegments(V) == 3
     @test parent(MultipleShooting._block(V, 2)) == parent(V)[:, 4:6]
-    @test_throws ArgumentError Seeds(randn(4, 5); k=2)
+    @test_throws ArgumentError Seeds(randn(4, 5); L=2)
     @test_throws MethodError MultiVector(V, [1.5])
 
     # ---- the states moved forward by one slot, and back, in both layouts ----
@@ -155,7 +155,7 @@ end
     w  = MultiVector(Seeds(ab.X .+ 1e-2 .* randn(3, 4)), copy(ab.d))
     eT = MultiVector(Seeds(zeros(3, 4)), [1.0])
     flat(v)     = [vec(v.X); v.d]
-    residual(y) = flat(Residual(Q, period(w))(similar(y), y))
+    residual(y) = flat(Residual(Q)(similar(y), y))
     D = (residual(w .+ 1e-6 .* eT) .- residual(w .- 1e-6 .* eT)) ./ 2e-6
     @test norm(flat(Jacobian(Q, w)*eT) - D) < 1e-8*norm(D)
 
@@ -218,7 +218,7 @@ end
     # ---- tangents! advances the blocks of several directions along the states, by default as
     #      tangent! does on each block alone, and leaves the end points in the states ----
     X = copy(ab.X)
-    V = Seeds(reduce(hcat, S.V); k=2)
+    V = Seeds(reduce(hcat, S.V); L=2)
     W = [tangent!(L, copy(ab.X), copy(Vᵃ), τ) for Vᵃ in S.V]
     tangents!(L, X, V, τ)
     @test X ≈ propagate!(L, copy(ab.X), τ)
@@ -235,7 +235,7 @@ end
     dz = tangent_sensitivity(L, ab)
     T(ρ) = (P = LorenzPropagator(1e-3, ρ);
             z = copy(ab);
-            nkroot!(Residual(P, period(z)), Jacobian(P, z), z; krylov_dim=20, krylov_tol=1e-10, Δ=1.0,
+            nkroot!(Residual(P), Jacobian(P, z), z; krylov_dim=20, krylov_tol=1e-10, Δ=1.0,
                     tol=1e-12, maxiter=50, verbose=false);
             period(z))
     @test abs(period(dz) - (T(28 + 1e-4) - T(28 - 1e-4))/2e-4) < 1e-6*abs(period(dz))
@@ -361,7 +361,7 @@ end
     Random.seed!(2)
     z  = copy(ks22_guess)
     Jk = Jacobian(K, z)
-    @test nkroot!(Residual(K, period(z)), Jk, z; precond=Preconditioner(K, z; k′=4), flexible=true, krylov_dim=60,
+    @test nkroot!(Residual(K), Jk, z; precond=Preconditioner(K, z; k′=4), flexible=true, krylov_dim=60,
                   krylov_tol=1e-8, Δ=1.0, tol=1e-10, maxiter=40, verbose=false).status === :converged
 end
 
@@ -411,7 +411,7 @@ end
         Random.seed!(2)
         u = copy(ks22_guess)
         P = Preconditioner(K, u; k′=4, sweeps=5, tol=0.0, maxsteps=maxsteps, cap=:keep, every=every)
-        @test nkroot!(Residual(K, period(u)), Jacobian(K, u), u; precond=P, flexible=true, krylov_dim=60,
+        @test nkroot!(Residual(K), Jacobian(K, u), u; precond=P, flexible=true, krylov_dim=60,
                       krylov_tol=1e-8, Δ=1.0, tol=1e-10, maxiter=40, verbose=false).status === :converged
     end
 end
@@ -435,7 +435,7 @@ end
                   verbose=false).status === :converged
     @test abs(period(z) - period(ab)) < 1e-8
     z = copy(ks22_guess)
-    @test nkroot!(Residual(K, period(z)), JacobianFD(K, z), z; krylov_dim=60, krylov_tol=1e-8, Δ=1.0, tol=1e-10,
+    @test nkroot!(Residual(K), JacobianFD(K, z), z; krylov_dim=60, krylov_tol=1e-8, Δ=1.0, tol=1e-10,
                   maxiter=40, verbose=false).status === :converged
     @test abs(period(z) - period(ks22)) < 1e-6
     @test abs(shift(z, 1) - shift(ks22, 1)) < 1e-6
@@ -443,19 +443,15 @@ end
 
 
 @testset "bounds on the period                     " begin
-    # ---- within a factor α of the period of the guess the residual is the same, outside it is
-    #      infinite, with no integration: the period of ab, 1.56, against guesses of 2, 4 and 0.5 ----
-    @test Residual(L, 2.0)(similar(ab), ab).X == F(similar(ab), ab).X
-    @test norm(Residual(L, 4.0)(similar(ab), ab)) == Inf
-    @test norm(Residual(L, 0.5)(similar(ab), ab)) == Inf
-    @test norm(Residual(L, 4.0; α=3)(similar(ab), ab)) < 1e-9
+    # ---- within the bounds the residual is the same, outside it is infinite, with no integration ----
+    @test Residual(L; bounds=(1.0, 2.0))(similar(ab), ab).X == F(similar(ab), ab).X
+    @test norm(Residual(L; bounds=(1.0, 1.5))(similar(ab), ab)) == Inf
+    @test norm(Residual(L; bounds=(1.6, 2.0))(similar(ab), ab)) == Inf
 
-    # ---- a period that is not positive is out, whatever the factor ----
-    G = Residual(L, 1.57; α=Inf)
-    @test norm(G(similar(ab), ab)) < 1e-9
+    # ---- a period that is not positive is out of the default bounds ----
     for T in (0.0, -period(ab))
         z = MultiVector(copy(ab.X), [T])
-        @test norm(G(similar(z), z)) == Inf
+        @test norm(F(similar(z), z)) == Inf
     end
 end
 
@@ -470,19 +466,19 @@ end
     #      a fixed parameter does not converge, and the search with the parameter free lands on a
     #      circle at a parameter above the fold ----
     z = circle(0.5)
-    @test nkroot!(Residual(cycles(-0.3), period(z)), Jacobian(cycles(-0.3), z), z; krylov_dim=9, krylov_tol=1e-10, Δ=0.1,
+    @test nkroot!(Residual(cycles(-0.3)), Jacobian(cycles(-0.3), z), z; krylov_dim=9, krylov_tol=1e-10, Δ=0.1,
                   tol=1e-10, maxiter=50, verbose=false).status !== :converged
     z   = circle(0.5)
     out = freesearch!(cycles, z, -0.3; krylov_tol=1e-10, krylov_dim=10)
     @test out.status === :converged
     @test out.p > -0.25
-    @test norm(Residual(cycles(out.p), period(z))(similar(z), z)) < 1e-10
+    @test norm(Residual(cycles(out.p))(similar(z), z)) < 1e-10
     @test abs(radius²(z) - outer(out.p)) < 1e-6 || abs(radius²(z) - inner(out.p)) < 1e-6
 
     # ---- the column of the parameter from the forced tangent equation and from the central
     #      difference of the residual, off an orbit, and the same search with the second ----
     z = circle(0.6)
-    R(u, μ) = Residual(cycles(μ), period(u))(similar(u), u)
+    R(u, μ) = Residual(cycles(μ))(similar(u), u)
     @test norm(MultipleShooting._forced(cycles(-0.2), z) .- (R(z, -0.2 + 1e-5) .- R(z, -0.2 - 1e-5)) ./ 2e-5) < 1e-8
     z = circle(0.5)
     @test abs(freesearch!(cycles, z, -0.3; column=:difference, krylov_tol=1e-10, krylov_dim=10).p - out.p) < 1e-8
@@ -531,7 +527,7 @@ end
     z   = copy(ab)
     out = continuation!(lorenz, z, 28.0; target=28.5, krylov_tol=1e-10, krylov_dim=20)
     w   = copy(ab)
-    nkroot!(Residual(lorenz(28.5), period(w)), Jacobian(lorenz(28.5), w), w; krylov_dim=20, krylov_tol=1e-10, Δ=1.0,
+    nkroot!(Residual(lorenz(28.5)), Jacobian(lorenz(28.5), w), w; krylov_dim=20, krylov_tol=1e-10, Δ=1.0,
             tol=1e-12, maxiter=50, verbose=false)
     @test out.status === :target
     @test abs(period(z) - period(w)) < 1e-8
@@ -554,12 +550,12 @@ end
     ks(λ) = KSPropagator(; L=exp(λ))
     z   = copy(ks22)
     out = continuation!(ks, z, log(22.0); target=log(22.1), precond=Preconditioner(K, z; k′=4), krylov_dim=60,
-                        α=2, column=:difference)
+                        periods=(0.5period(ks22), 2period(ks22)), column=:difference)
     w   = copy(z)
-    nkroot!(Residual(ks(log(22.1)), period(w)), Jacobian(ks(log(22.1)), w), w; krylov_dim=60, krylov_tol=1e-8, Δ=1.0,
+    nkroot!(Residual(ks(log(22.1))), Jacobian(ks(log(22.1)), w), w; krylov_dim=60, krylov_tol=1e-8, Δ=1.0,
             tol=1e-10, maxiter=40, verbose=false)
     @test out.status === :target
-    @test norm(Residual(ks(log(22.1)), period(z))(similar(z), z)) < 1e-9
+    @test norm(Residual(ks(log(22.1)))(similar(z), z)) < 1e-9
     @test abs(period(z) - period(w)) < 1e-7
     @test abs(shift(z, 1) - shift(w, 1)) < 1e-7
 end
@@ -602,7 +598,7 @@ end
     Random.seed!(2)
     g = 1 .+ 0.5 .* cos.(2π .* (0:63) ./ 64)
     u = MultiVector(Seeds(copy(parent(ks22_guess.X)); dots=(X, Y) -> sum(g .* X .* Y; dims=1)), copy(ks22_guess.d))
-    @test nkroot!(Residual(K, period(u)), Jacobian(K, u), u; precond=Preconditioner(K, u; k′=4), flexible=true, krylov_dim=60,
+    @test nkroot!(Residual(K), Jacobian(K, u), u; precond=Preconditioner(K, u; k′=4), flexible=true, krylov_dim=60,
                   krylov_tol=1e-8, Δ=1.0, tol=1e-10, maxiter=40, verbose=false).status === :converged
     @test abs(period(u) - period(ks22)) < 1e-6
 end
