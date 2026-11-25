@@ -41,8 +41,8 @@ mutable struct JacobianFD{PT, V<:MultiVector, D, H}
         D = NKRoots.jacobianFD(Residual(P), z; difference=difference, ϵ=ϵ)
 
         # ---- the storage of the phase rows, filled by update! ----
-        f = _similar(_head(z.X))
-        g = typeof(f)[_similar(f) for _ in 1:nshifts(z)]
+        f = similar(_head(z.X))
+        g = typeof(f)[similar(f) for _ in 1:nshifts(z)]
 
         J = new{typeof(P), typeof(z), typeof(D), typeof(f)}(P,
                                                             z,

@@ -32,7 +32,7 @@
 const _ETA = 1e-3 # share of the fall of a linear problem that a step must reach
 
 # the unknowns z, or a vector like them, and the parameter p as one vector, with seeds of its own
-_extended(z::MultiVector, p::Real) = MultiVector(_copy(z.X), [z.d; p])
+_extended(z::MultiVector, p::Real) = MultiVector(copy(z.X), [z.d; p])
 
 # the unknowns of an extended vector, sharing its seeds
 _unknowns(x::MultiVector) = MultiVector(x.X, x.d[1:(end - 1)])
@@ -83,7 +83,7 @@ function _bordered(J::Jacobian, M, c::MultiVector, t::MultiVector, b::MultiVecto
         v  = _precondition(M, y)
         o  = J*_unknowns(v)
         o .= o .+ v.d[end] .* c
-        _copyto!(out.X, o.X)
+        copyto!(out.X, o.X)
         out.d[1:(end - 1)] .= o.d
         out.d[end]          = LinearAlgebra.dot(t, v)
 
@@ -113,8 +113,8 @@ function _free!(family, z::MultiVector, p::Real, t::MultiVector;   precond=nothi
                                                                     column::Symbol=:forced,
                                                                        tol::Real=1e-10,
                                                                    maxiter::Int=100,
-                                                                    bounds=(-Inf, Inf),
-                                                                   periods=(0.0, Inf),
+                                                                    bounds::NTuple{2, Real}=(-Inf, Inf),
+                                                                   periods::NTuple{2, Real}=(0.0, Inf),
                                                                          ϵ::Real=1e-6,
                                                                 krylov_tol::Real=1e-3,
                                                                 krylov_dim::Int=200)

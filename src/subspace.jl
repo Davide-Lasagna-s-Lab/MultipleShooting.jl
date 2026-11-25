@@ -96,20 +96,20 @@ mutable struct Subspace{PT, ZT<:MultiVector, A, B}
 
         # ---- random orthonormal bases ----
         X = z.X
-        V = [_randn!(_similar(X)) for _ in 1:k′]
+        V = [Random.randn!(similar(X)) for _ in 1:k′]
         _orthonormalise!(V)
 
         # ---- the packed batch of a step, m k′ states ----
-        Vk′ = _similar(X, m, k′)
+        Vk′ = _similar(X, k′*m)
 
         return new{typeof(P), typeof(z), typeof(X), typeof(Vk′)}(P,
                                                                  z,
                                                                  V,
-                                                                 _similar.(V),
+                                                                 similar.(V),
                                                                  fill(Inf, k′, k′, m),
-                                                                 _similar.(V),
+                                                                 similar.(V),
                                                                  fill(Inf, k′, m),
-                                                                 _similar(X),
+                                                                 similar(X),
                                                                  Vk′,
                                                                  0)
     end
@@ -139,29 +139,30 @@ directions advance together, as one batch of m k′ states along the shooting po
 function iterate!(S::Subspace)
     z  = S.z
     k′ = length(S.V)
+    m  = nsegments(z)
 
     # ---- the bases before the step ----
     #      Vᵢ^(r-1), kept in U
     for a in 1:k′
-        _copyto!(S.U[a], S.V[a])
+        copyto!(S.U[a], S.V[a])
     end
 
     # ---- the step: the k′ directions packed into one batch, block a along the points ----
     #      V = (v₁¹, …, v_m¹, v₁², …, v_m², …)
     for a in 1:k′
-        _copyto!(_block(S.Vk′, a), S.V[a])
+        copyto!(_block(S.Vk′, a, m), S.V[a])
     end
 
     # ---- the step: the batch advanced over the segments along the shooting points, which
     #      become the end points of the segments ----
     #      vᵢᵃ ← ψᵢ vᵢᵃ,   Xᵢ = φ_τ(uᵢ)
-    _copyto!(S.tmp, z.X)
+    copyto!(S.tmp, z.X)
     tangents!(S.P, S.tmp, S.Vk′, period(z)/nsegments(z))
 
     # ---- the step: each image back in its batch, at the point it reaches, the last shifted ----
     #      ψᵢ vᵢᵃ at point i + 1,   S(s) ψ_m v_mᵃ at point 1
     for a in 1:k′
-        _copyto!(S.V[a], _block(S.Vk′, a))
+        copyto!(S.V[a], _block(S.Vk′, a, m))
         nshifts(z) > 0 && shift!(S.P, _tail(S.V[a]), _shifts(z))
         _shift_forward!(S.V[a])
     end
@@ -318,7 +319,7 @@ function _turn!(Z::Vector, σ::Matrix{Float64}, U::Vector, V::Vector)
     # ---- the new basis minus its projection on the old ----
     #      zᵢᵇ = vᵢᵇ - Σₐ (Cᵢ)ₐᵦ uᵢᵃ
     for b in 1:k′
-        _copyto!(Z[b], V[b])
+        copyto!(Z[b], V[b])
         for a in 1:k′
             Z[b] .-= C[a, b] .* U[a]
         end
@@ -348,8 +349,8 @@ end
 # One pass of modified Gram–Schmidt across the k′ batches, at every point at once, in the order of
 # the directions, so that the first j columns of Qᵢ span the first j of Vᵢ: V is overwritten with Q
 # and the triangular factor returned, Vᵢ = Qᵢ Rᵢ, k′ × k′ × m on the host. The coefficients are one
-# per point, from the inner product dots of the states, and broadcast against the batches in both
-# layouts. A column that vanishes at a point stays zero there, with a zero on the diagonal of R
+# per point, from the inner product dots of the states, and broadcast against the batches. A
+# column that vanishes at a point stays zero there, with a zero on the diagonal of R
 function _gram_schmidt!(V::Vector)
     k′ = length(V)
     m  = nsegments(first(V))

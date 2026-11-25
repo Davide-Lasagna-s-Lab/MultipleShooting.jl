@@ -49,7 +49,7 @@ end
 # at fixed seeds, period and shifts: one integration of the seeds by the forced tangent equation.
 # The shifts are taken not to depend on the parameter
 function _forced(P, z::MultiVector)
-    X = _copy(z.X)
+    X = copy(z.X)
 
     # ---- vectors from zero ----
     #      cᵢ = 0

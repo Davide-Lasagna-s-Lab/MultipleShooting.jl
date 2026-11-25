@@ -35,17 +35,17 @@ struct CyclePropagator
      μ::Float64 # the parameter μ
 end
 
-MultipleShooting.propagate!(P::CyclePropagator, X::Batched, τ::Real) =
+MultipleShooting.propagate!(P::CyclePropagator, X::AbstractMatrix, τ::Real) =
     (rk4!((dX, Y) -> cycle_rhs!(dX, Y, P.μ), X, τ, P.dt); X)
 
-MultipleShooting.tangent!(P::CyclePropagator, X::Batched, V::Batched, τ::Real) =
+MultipleShooting.tangent!(P::CyclePropagator, X::AbstractMatrix, V::AbstractMatrix, τ::Real) =
     (rk4!((dX, Y) -> cycle_rhs!(dX, Y, P.μ), (dV, Y, W) -> cycle_lin!(dV, Y, W, P.μ), X, V, τ, P.dt); V)
 
 # the tangent equation forced by the derivative of the right-hand side in μ, ∂f/∂μ = (x, y)
-MultipleShooting.forced!(P::CyclePropagator, X::Batched, V::Batched, τ::Real) =
+MultipleShooting.forced!(P::CyclePropagator, X::AbstractMatrix, V::AbstractMatrix, τ::Real) =
     (rk4!((dX, Y) -> cycle_rhs!(dX, Y, P.μ), (dV, Y, W) -> (cycle_lin!(dV, Y, W, P.μ); dV .+= Y; dV), X, V, τ, P.dt); V)
 
-MultipleShooting.rhs!(P::CyclePropagator, F::Batched, X::Batched) = cycle_rhs!(F, X, P.μ)
+MultipleShooting.rhs!(P::CyclePropagator, F::AbstractMatrix, X::AbstractMatrix) = cycle_rhs!(F, X, P.μ)
 
 # the circle of squared radius r² as four seeds a quarter of a turn apart, with the period 2π
-circle(r²) = MultiVector(Seeds(sqrt(r²) .* [1.0 0.0 -1.0 0.0; 0.0 1.0 0.0 -1.0]), [2π])
+circle(r²) = MultiVector(sqrt(r²) .* [1.0 0.0 -1.0 0.0; 0.0 1.0 0.0 -1.0], [2π])

@@ -33,7 +33,7 @@ not within `bounds` the residual is infinite, with no integration.
 
 # Arguments
 - `P`: the propagator, with `propagate!`, and `shift!` for relative periodic orbits.
-- `bounds=(0.0, Inf)`: the least and the largest period, both excluded, as `(0.5T, 2T)` for a
+- `bounds::NTuple{2, Real}=(0.0, Inf)`: the least and the largest period, both excluded, as `(0.5T, 2T)` for a
   guess of period `T`. The default refuses the periods that are not positive.
 
 Called as `F(r, z)`, with
@@ -44,7 +44,7 @@ struct Residual{PT}
          P::PT                      # the propagator
     bounds::Tuple{Float64, Float64} # the periods outside which the residual is infinite
 
-    Residual(P; bounds=(0.0, Inf)) = new{typeof(P)}(P, bounds)
+    Residual(P; bounds::NTuple{2, Real}=(0.0, Inf)) = new{typeof(P)}(P, bounds)
 end
 
 function (F::Residual)(r::MultiVector, z::MultiVector)

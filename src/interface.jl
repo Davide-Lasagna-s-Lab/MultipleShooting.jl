@@ -1,8 +1,8 @@
 # The propagator: what multiple shooting needs from the dynamical system. It acts on batches of
-# states, AbstractSeeds, the seeds of the segments or the vectors attached to them (see seeds.jl),
-# so that it can advance all the states of a batch at once, on threads or on a GPU, or one at a
-# time. A
-# propagator is a type of the user's, for which these methods are defined:
+# states, the seeds of the segments or the vectors attached to them (see batch.jl), so that it can
+# advance all the states of a batch at once, on threads or on a GPU, or one at a time. The package
+# passes it the batches of the caller as they are, and those it makes from them. A propagator is a
+# type of the user's, for which these methods are defined:
 #
 #     propagate!(P, X, τ)      advance every state of X by the time τ          residual
 #     dpropagate!(P, X, V, τ)  as propagate!, and V the derivative in τ of the  period
@@ -36,8 +36,7 @@ with φ_τ the flow map of x' = f(x), as the integrator computes it.
 
 # Arguments
 - `P`: the propagator, the type the method is written for.
-- `X`: a batch of states, an [`AbstractSeeds`](@ref), [`Batched`](@ref) or [`Sliced`](@ref),
-  overwritten with their images.
+- `X`: a batch of states, overwritten with their images.
 - `τ::Real`: the time.
 """
 function propagate! end
@@ -108,9 +107,8 @@ function tangent! end
     tangents!(P, X, V, τ) -> V
 
 As [`tangent!`](@ref), for several perturbations of every state. The batch `V` holds k′ blocks of
-perturbations one after the other, each like `X`, an `AbstractSeeds{M, k′}` for the
-`AbstractSeeds{M, 1}` of `X`, and every block is advanced by the tangent equation along the states
-of `X`, which are advanced once, all in place,
+perturbations one after the other, each like `X`, and every block is advanced by the tangent
+equation along the states of `X`, which are advanced once, all in place,
 
     xᵢ ← φ_τ(xᵢ),   vᵢᵃ ← ψᵢ vᵢᵃ,   a = 1, …, k′,
 
@@ -120,19 +118,20 @@ gives its own method to integrate the states once for all the blocks.
 
 # Arguments
 - `P`: the propagator.
-- `X::AbstractSeeds{M, 1}`: a batch of M states, overwritten with their images.
-- `V::AbstractSeeds{M, k′}`: a batch of k′ M perturbations, block a in the places (a - 1)M + 1 to
-  aM, overwritten with their images by the tangent maps.
+- `X`: a batch of m states, overwritten with their images.
+- `V`: a batch of k′ m perturbations, block a in the places (a - 1)m + 1 to am, overwritten with
+  their images by the tangent maps.
 - `τ::Real`: the time.
 """
-function tangents!(P, X::AbstractSeeds{M, 1}, V::AbstractSeeds{M, L}, τ::Real) where {M, L}
-    Xk′ = _copies(X, L)
+function tangents!(P, X, V, τ::Real)
+    m   = nsegments(X)
+    Xk′ = _copies(X, nsegments(V) ÷ m)
 
     # ---- every block along its own copy of the states ----
     tangent!(P, Xk′, V, τ)
 
     # ---- the end points, from the first copy ----
-    _copyto!(X, _block(Xk′, 1))
+    copyto!(X, _block(Xk′, 1, m))
 
     return V
 end

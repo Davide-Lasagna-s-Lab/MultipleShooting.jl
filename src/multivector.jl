@@ -3,14 +3,14 @@
 #
 #     ⟨z, w⟩ = Σᵢ ⟨uᵢ, vᵢ⟩ + Σⱼ dⱼ d'ⱼ,
 #
-# where ⟨uᵢ, vᵢ⟩ is the inner product of two states, that of the batch of the seeds, dots (see
-# seeds.jl): GMRES, the phase conditions, the bases of the subspace iteration and the
+# where ⟨uᵢ, vᵢ⟩ is the inner product of two states, that of the batches of the seeds, dots (see
+# batch.jl): GMRES, the phase conditions, the bases of the subspace iteration and the
 # preconditioner all take it from there, so that they share one geometry.
 #
 # Broadcasting acts on the two parts separately: an expression such as w .= α .* z .+ β .* w is
 # split into w.X .= α .* z.X .+ β .* w.X on the seeds and w.d .= α .* z.d .+ β .* w.d on the
-# scalars. The seeds broadcast as one array in the batched layout, on whatever device they live,
-# and state by state in the sliced one.
+# scalars. The seeds broadcast as their batch does, an array as one array, on whatever device it
+# lives.
 
 """
     MultiVector(X, d)
@@ -24,19 +24,17 @@ with the inner product ⟨z, w⟩ = Σᵢ ⟨uᵢ, wᵢ⟩ + Σⱼ dⱼ d′ⱼ,
 broadcasts like a vector, `w .= α .* z .+ w`, on the seeds and the scalars separately.
 
 # Arguments
-- `X::AbstractSeeds{m, 1}`: the seeds, a batch of m states, [`Batched`](@ref) or
-  [`Sliced`](@ref), as [`Seeds`](@ref) makes from an array, with the inner product of the
-  states.
+- `X`: the seeds, a batch of m states, as it is: an array whose last dimension runs over the
+  states, or a batch of the caller's (see batch.jl).
 - `d::Vector{Float64}`: the scalars `[T, s₁, s₂, …]`, the period followed by one shift per
   continuous symmetry, `[T]` for a periodic orbit. [`period`](@ref), [`nshifts`](@ref) and
   [`shift`](@ref) read them.
 """
-struct MultiVector{A<:AbstractSeeds}
-    X::A               # the seeds, a batch of states, with their inner product
+struct MultiVector{A}
+    X::A               # the seeds, a batch of states
     d::Vector{Float64} # the scalars: the period, then the shifts
 
-    MultiVector(X::AbstractSeeds{m, 1}, d::AbstractVector) where {m} =
-        new{typeof(X)}(X, convert(Vector{Float64}, d))
+    MultiVector(X, d::AbstractVector) = new{typeof(X)}(X, convert(Vector{Float64}, d))
 end
 
 nsegments(z::MultiVector) = nsegments(z.X)
@@ -82,9 +80,9 @@ end
 # all the shifts, as a view
 _shifts(z::MultiVector) = view(z.d, 2:lastindex(z.d))
 
-Base.similar(z::MultiVector) = MultiVector(_similar(z.X), similar(z.d))
+Base.similar(z::MultiVector) = MultiVector(similar(z.X), similar(z.d))
 
-Base.copy(z::MultiVector) = MultiVector(_copy(z.X), copy(z.d))
+Base.copy(z::MultiVector) = MultiVector(copy(z.X), copy(z.d))
 
 LinearAlgebra.dot(z::MultiVector, w::MultiVector) = _dot(z.X, w.X) + LinearAlgebra.dot(z.d, w.d)
 
@@ -102,31 +100,18 @@ Base.BroadcastStyle(::Type{<:MultiVector}) = MultiStyle()
 Base.BroadcastStyle(s::MultiStyle, ::Broadcast.DefaultArrayStyle{0}) = s
 Base.broadcastable(z::MultiVector) = z
 
-# the same expression on one part, :X or :d, or on state i of the seeds: every MultiVector
-# replaced by that part
-_part(z::MultiVector, part::Symbol)         = getfield(z, part)
-_part(z::MultiVector, part::Symbol, i::Int) = getfield(z, part)[i]
-_part(bc::Broadcast.Broadcasted, part::Symbol, i...) =
-    Broadcast.broadcasted(bc.f, map(a -> _part(a, part, i...), bc.args)...)
-_part(x, part::Symbol, i...) = x
-
-# the expression on the seeds: on the whole array, or state by state
-_materialize!(X::Batched, bc) = Broadcast.materialize!(X, _part(bc, :X))
-
-function _materialize!(X::Sliced, bc)
-    for i in eachindex(X)
-        Broadcast.materialize!(X[i], _part(bc, :X, i))
-    end
-
-    return X
-end
+# the same expression on one part, :X or :d: every MultiVector replaced by that part
+_part(z::MultiVector, part::Symbol) = getfield(z, part)
+_part(bc::Broadcast.Broadcasted, part::Symbol) =
+    Broadcast.broadcasted(bc.f, map(a -> _part(a, part), bc.args)...)
+_part(x, part::Symbol) = x
 
 # w .= expression: the expression on the seeds, then on the scalars. Taking over materialize!
 # and copyto! avoids the axes of the destination, which a MultiVector does not have
 Broadcast.materialize!(::MultiStyle, w::MultiVector, bc::Broadcast.Broadcasted) = copyto!(w, bc)
 
 function Base.copyto!(w::MultiVector, bc::Broadcast.Broadcasted)
-    _materialize!(w.X, bc)
+    Broadcast.materialize!(w.X, _part(bc, :X))
     Broadcast.materialize!(w.d, _part(bc, :d))
 
     return w

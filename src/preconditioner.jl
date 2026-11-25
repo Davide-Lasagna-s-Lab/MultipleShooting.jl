@@ -173,17 +173,17 @@ function _assemble!(M::Preconditioner)
 
     # ---- the end points left by the subspace step, the end of the last segment shifted ----
     #      Xᵢ = φ_τ(uᵢ),   X_m = S(s) φ_τ(u_m)
-    X = _copy(S.tmp)
+    X = copy(S.tmp)
     ns > 0 && shift!(P, _tail(X), _shifts(z))
 
     # ---- f there, each in the row of the seed it reaches, and the generators at the end of the
     #      last segment; f and the generators at the first seed ----
     #      Fᵢ₊₁ = f(φ_τ(uᵢ)),   F₁ = f(S(s) φ_τ(u_m)),   Gⱼ = gⱼ(S(s) φ_τ(u_m)),
     #      f₁ = f(u₁),   g₁ⱼ = gⱼ(u₁)
-    F  = _shift_forward!(rhs!(P, _similar(X), X))
-    G  = [dshift!(P, _similar(_tail(X)), _tail(X), j) for j in 1:ns]
-    f₁ = rhs!(P, _similar(_head(z.X)), _head(z.X))
-    g₁ = [dshift!(P, _similar(_head(z.X)), _head(z.X), j) for j in 1:ns]
+    F  = _shift_forward!(rhs!(P, similar(X), X))
+    G  = [dshift!(P, similar(_tail(X)), _tail(X), j) for j in 1:ns]
+    f₁ = rhs!(P, similar(_head(z.X)), _head(z.X))
+    g₁ = [dshift!(P, similar(_head(z.X)), _head(z.X), j) for j in 1:ns]
 
     # ---- the projections on the bases, one per seed, brought to the host ----
     #      Uᵢᵀ Fᵢ at every seed, f₁ᵀ U₁, U₁ᵀ Gⱼ and g₁ⱼᵀ U₁ at the first seed

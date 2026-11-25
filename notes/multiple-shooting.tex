@@ -183,12 +183,9 @@ or on a GPU, or one after the other. A batch comes in one of two layouts, sketch
 figure~\ref{fig:batches}. In the batched layout it is one array of numbers whose last dimension
 runs over the states, such as an $n \times m$ matrix for vectors or an $N_x \times N_y \times m$
 array for fields on a grid. In the sliced layout it is a vector of $m$ arrays, one per state, of
-any shape. The code dispatches on the two, under the names \code{Batched} and \code{Sliced}.
-Both are an \code{AbstractSeeds\{M, L\}}, which wraps the array and holds $L$ states at each of
-$M$ seeds, in $L$ blocks of $M$: $L = 1$ for the seeds, and $L = k$ for the $k$ directions of a
-subspace step packed together, so that the sizes are in the types. \code{Seeds} wraps any array;
-a package gives its own subtype for its states, with \code{parent}, \code{rewrap} and the inner
-product \code{dots}.
+any shape. The code does not know the layout: its few functions on a batch are written for an
+array, the batched layout, and a batch of another kind, such as the sliced one, gives its own
+methods of them, with the inner product \code{dots} of its states.
 
 \begin{figure}
   \centering

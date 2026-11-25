@@ -15,10 +15,6 @@ export propagate!,
        shift!,
        dshift!,
        dpropagate!,
-       AbstractSeeds,
-       Seeds,
-       Batched,
-       Sliced,
        dots,
        MultiVector,
        nsegments,
@@ -38,9 +34,7 @@ export propagate!,
        freesearch!,
        continuation!
 
-include("seeds.jl")
-include("batched.jl")
-include("sliced.jl")
+include("batch.jl")
 include("interface.jl")
 include("multivector.jl")
 include("residual.jl")

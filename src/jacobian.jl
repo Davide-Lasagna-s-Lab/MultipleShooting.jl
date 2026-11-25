@@ -57,11 +57,11 @@ mutable struct Jacobian{PT, V<:MultiVector, A, H}
 
     function Jacobian(P, z::MultiVector)
         # ---- the storage, filled by update! ----
-        tmp = _similar(z.X)
-        F = _similar(z.X)
-        f = _similar(_head(z.X))
-        G = typeof(f)[_similar(f) for _ in 1:nshifts(z)]
-        g = typeof(f)[_similar(f) for _ in 1:nshifts(z)]
+        tmp = similar(z.X)
+        F = similar(z.X)
+        f = similar(_head(z.X))
+        G = typeof(f)[similar(f) for _ in 1:nshifts(z)]
+        g = typeof(f)[similar(f) for _ in 1:nshifts(z)]
 
         J = new{typeof(P), typeof(z), typeof(F), typeof(f)}(P,
                                                              z,
@@ -93,11 +93,11 @@ function NKRoots.update!(J::Jacobian, z::MultiVector)
     J.z = z
 
     # ---- the end points, row i φ_τ(uᵢ), and their derivatives in τ, the column of the period ----
-    _copyto!(J.tmp, z.X)
+    copyto!(J.tmp, z.X)
     dpropagate!(J.P, J.tmp, J.F, τ)
 
     # ---- each over m, since τ = T/m ----
-    _map!(f -> f/m, J.F, J.F)
+    J.F ./= m
 
     # ---- the end of the last segment shifted, and its derivative with it ----
     if nshifts(z) > 0
@@ -124,7 +124,7 @@ function LinearAlgebra.mul!(out::MultiVector, J::Jacobian, v::MultiVector)
 
     # ---- the seeds and the vector ----
     #      tmpᵢ = uᵢ,   outᵢ = vᵢ
-    _copyto!(J.tmp, J.z.X)
+    copyto!(J.tmp, J.z.X)
     out .= v
 
     # ---- advanced over their segments by the tangent equation ----
@@ -137,10 +137,10 @@ function LinearAlgebra.mul!(out::MultiVector, J::Jacobian, v::MultiVector)
 
     # ---- plus the period column, and the shift columns at the end of the last segment ----
     #      outᵢ += δT Fᵢ, Fᵢ = (1/m) ∂φ_τ(uᵢ)/∂τ,   out_m += Σⱼ δsⱼ gⱼ(S(s) φ_τ(u_m))
-    _map!((ψv, f) -> ψv + δT*f, out.X, out.X, J.F)
+    out.X .+= δT .* J.F
+    last    = _tail(out.X)
     for j in 1:nshifts(J.z)
-        δs = shift(v, j)
-        _map!((o, g) -> o + δs*g, _tail(out.X), _tail(out.X), J.G[j])
+        last .+= shift(v, j) .* J.G[j]
     end
 
     # ---- each row in the row of the seed it has to reach, minus the vector ----
