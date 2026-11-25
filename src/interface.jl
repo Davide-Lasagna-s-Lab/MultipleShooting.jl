@@ -1,5 +1,5 @@
 # The propagator: what multiple shooting needs from the dynamical system. It acts on batches of
-# states, AbstractSeeds, the seeds of the segments or the vectors attached to them (see batch.jl),
+# states, AbstractSeeds, the seeds of the segments or the vectors attached to them (see seeds.jl),
 # so that it can advance all the states of a batch at once, on threads or on a GPU, or one at a
 # time. A
 # propagator is a type of the user's, for which these methods are defined:

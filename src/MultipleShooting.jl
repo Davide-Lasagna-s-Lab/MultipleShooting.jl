@@ -39,7 +39,9 @@ export propagate!,
        freesearch!,
        continuation!
 
-include("batch.jl")
+include("seeds.jl")
+include("batched.jl")
+include("sliced.jl")
 include("interface.jl")
 include("multivector.jl")
 include("residual.jl")

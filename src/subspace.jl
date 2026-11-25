@@ -51,7 +51,7 @@
 #
 #     V[1] = (v₁¹, v₂¹, …, v_m¹),   …,   V[k′] = (v₁ᵏ′, v₂ᵏ′, …, v_mᵏ′),
 #
-# so that each is shifted and rolled as a vector of the Jacobian is. A step packs them into one
+# so that each is shifted and moved forward as a vector of the Jacobian is. A step packs them into one
 # batch of k′ blocks of m states,
 #
 #     V = (v₁¹, …, v_m¹, v₁², …, v_m², …),
@@ -163,7 +163,7 @@ function iterate!(S::Subspace)
     for a in 1:k′
         _copyto!(S.V[a], _block(S.Vk′, a))
         nshifts(z) > 0 && shift!(S.P, _tail(S.V[a]), _shifts(z))
-        _roll!(S.V[a])
+        _shift_forward!(S.V[a])
     end
 
     # ---- the Galerkin blocks of the bases before the step, from the images ----
@@ -275,7 +275,7 @@ function update!(S::Subspace, z::MultiVector; tol::Real,
 end
 
 # The Galerkin blocks of the bases U before a step, from their images V before Gram–Schmidt, k′
-# batches each. After the roll the image of segment i sits at point i + 1, cyclically, and its
+# batches each. After the shift forward the image of segment i sits at point i + 1, cyclically, and its
 # coordinates in the basis there are the block of segment i,
 #
 #     Eᵢ = Uᵢ₊₁ᵀ ψᵢ Uᵢ,   E_m = U₁ᵀ S(s) ψ_m U_m,

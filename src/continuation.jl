@@ -42,7 +42,7 @@ length of a step is that of the change of `(z, p)`.
 - `points::Int=100`: the most points, the first one included.
 - `residual=nothing`: a function `(r, z, p) -> r` in place of the residual of `family(p)`, for a
   parameter that is not in the propagator, whose column is then the central difference. With
-  `F = Residual(P)` and `F₀` its value at a guess, `(r, z, a) -> (F(r, z); r .-= a .* F₀)` and
+  `F = Residual(P, period(z))` and `F₀` its value at a guess, `(r, z, a) -> (F(r, z); r .-= a .* F₀)` and
   `family = a -> P` follow the Newton homotopy `F(z) - a F₀ = 0` from `a = 1` to the `target` 0.
 - `kw...`: the other keywords of [`freesearch!`](@ref), but `maxiter`.
 

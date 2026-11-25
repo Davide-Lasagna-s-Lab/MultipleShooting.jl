@@ -14,12 +14,12 @@
 #
 # A search may try a period far from that of its guess, near a point where the Jacobian is nearly
 # singular, and a full Newton step may even take the period below zero, where no segment exists.
-# The residual of a period out of bounds is infinite, with no integration, so that a search refuses
-# the trial as it refuses any step that does not lower the residual. A period that is not positive
-# is always out of bounds.
+# The residual knows the period T₀ of the guess, and that of a period not within a factor α of it,
+# T₀/α < T < α T₀, is infinite, with no integration, so that a search refuses the trial as it
+# refuses any step that does not lower the residual. A period that is not positive is always out.
 
 """
-    Residual(P; bounds=(0.0, Inf))
+    Residual(P, T₀; α=2)
 
 The multiple-shooting residual of the propagator `P`, called as `F(r, z)`, as `nkroot!` of
 NKRoots.jl calls it. In the row of segment i + 1 it holds the end of segment i minus the seed of
@@ -29,12 +29,13 @@ first seed,
     rᵢ₊₁ = φ_τ(uᵢ) - uᵢ₊₁,   i = 1, …, m - 1,   r₁ = S(s) φ_τ(u_m) - u₁,   τ = T/m,
 
 and its scalar part is zero. One integration of the seeds per call. Where the period of `z` is
-not within `bounds` the residual is infinite, with no integration.
+not within a factor `α` of `T₀`, `T₀/α < T < α T₀`, the residual is infinite, with no integration.
 
 # Arguments
 - `P`: the propagator, with `propagate!`, and `shift!` for relative periodic orbits.
-- `bounds=(0.0, Inf)`: the least and the largest period, both excluded, as `(0.5T, 2T)` for a
-  guess of period `T`. The default refuses the periods that are not positive.
+- `T₀::Real`: the period of the guess, `period(z)`.
+- `α::Real=2`: the factor, above one: the periods from half to twice that of the guess by
+  default. `α=Inf` refuses only the periods that are not positive.
 
 Called as `F(r, z)`, with
 - `r::MultiVector`: overwritten with the residual;
@@ -42,9 +43,9 @@ Called as `F(r, z)`, with
 """
 struct Residual{PT}
          P::PT                      # the propagator
-    bounds::Tuple{Float64, Float64} # the periods outside which the residual is infinite
+    bounds::Tuple{Float64, Float64} # the periods outside which the residual is infinite, T₀/α and α T₀
 
-    Residual(P; bounds=(0.0, Inf)) = new{typeof(P)}(P, bounds)
+    Residual(P, T₀::Real; α::Real=2) = new{typeof(P)}(P, (T₀/α, α*T₀))
 end
 
 function (F::Residual)(r::MultiVector, z::MultiVector)
@@ -68,7 +69,7 @@ function (F::Residual)(r::MultiVector, z::MultiVector)
 
     # ---- each end point in the row of the seed it has to reach, minus the seeds ----
     #      rᵢ₊₁ = φ_τ(uᵢ) - uᵢ₊₁,   r₁ = S(s) φ_τ(u_m) - u₁,   and a zero scalar part
-    _roll!(r.X)
+    _shift_forward!(r.X)
     r .= r .- z
 
     return r

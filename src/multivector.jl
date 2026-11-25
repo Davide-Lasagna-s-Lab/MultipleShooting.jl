@@ -4,7 +4,7 @@
 #     ⟨z, w⟩ = Σᵢ ⟨uᵢ, vᵢ⟩ + Σⱼ dⱼ d'ⱼ,
 #
 # where ⟨uᵢ, vᵢ⟩ is the inner product of two states, that of the batch of the seeds, dots (see
-# batch.jl): GMRES, the phase conditions, the bases of the subspace iteration and the
+# seeds.jl): GMRES, the phase conditions, the bases of the subspace iteration and the
 # preconditioner all take it from there, so that they share one geometry.
 #
 # Broadcasting acts on the two parts separately: an expression such as w .= α .* z .+ β .* w is

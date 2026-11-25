@@ -38,7 +38,7 @@ mutable struct JacobianFD{PT, V<:MultiVector, D, H}
     function JacobianFD(P, z::MultiVector; difference::Symbol=:forward,
                                            ϵ::Union{Real, Nothing}=nothing)
         # ---- the difference of the residual at z, which evaluates the residual once ----
-        D = NKRoots.jacobianFD(Residual(P), z; difference=difference, ϵ=ϵ)
+        D = NKRoots.jacobianFD(Residual(P, period(z)), z; difference=difference, ϵ=ϵ)
 
         # ---- the storage of the phase rows, filled by update! ----
         f = _similar(_head(z.X))
@@ -82,7 +82,7 @@ function NKRoots.update!(J::JacobianFD, z::MultiVector, r::MultiVector)
 end
 
 NKRoots.update!(J::JacobianFD, z::MultiVector) =
-    NKRoots.update!(J, z, Residual(J.P)(similar(z), z))
+    NKRoots.update!(J, z, Residual(J.P, period(z))(similar(z), z))
 
 function LinearAlgebra.mul!(out::MultiVector, J::JacobianFD, v::MultiVector)
     # ---- the difference of the residual: the rows of the seeds, with the period and the shifts ----
