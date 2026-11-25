@@ -22,19 +22,21 @@
 # caller's with its own method of `dots`.
 
 """
-    Batched
+    Batched{T, N}
 
-Seeds that are an array of numbers, with the states along its last dimension: the columns of a
-matrix, the fields of a three-dimensional array. The package gives the methods of the interface
-of the seeds for it, and a propagator dispatches on it, or on an array type of its own.
+Seeds that are an array of numbers of type `T` with `N` dimensions, `AbstractArray{T, N}`, the
+states along the last one: the columns of a matrix, `Batched{Float64, 2}`, the fields of a
+three-dimensional array, `Batched{ComplexF64, 3}`. `Batched` alone is any of them. The package
+gives the methods of the interface of the seeds for it, and a propagator dispatches on it, or on
+an array type of its own.
 """
-const Batched = AbstractArray{<:Number}
+const Batched{T<:Number, N} = AbstractArray{T, N}
 
 # the size of the last dimension
-nsegments(X::Batched) = size(X, ndims(X))
+nsegments(X::Batched{T, N}) where {T, N} = size(X, N)
 
 # a view along the last dimension
-states(X::Batched, r::AbstractUnitRange) = selectdim(X, ndims(X), r)
+states(X::Batched{T, N}, r::AbstractUnitRange) where {T, N} = selectdim(X, N, r)
 
 # of the type that `similar` gives for the new size
 similar_states(X::Batched, b::Int) = similar(X, eltype(X), (Base.front(size(X))..., b))
@@ -47,10 +49,9 @@ similar_states(X::Batched, b::Int) = similar(X, eltype(X), (Base.front(size(X)).
 #     places 2 to 5 reversed             (x₅, x₁, x₂, x₃, x₄)
 #
 # the last state comes first, and the others keep their order one place later
-function roll_forward!(X::Batched)
-    d = ndims(X)
-    reverse!(X; dims=d)
-    reverse!(states(X, 2:nsegments(X)); dims=d)
+function roll_forward!(X::Batched{T, N}) where {T, N}
+    reverse!(X; dims=N)
+    reverse!(states(X, 2:nsegments(X)); dims=N)
     return X
 end
 
@@ -59,18 +60,17 @@ end
 #     X                                  (x₁, x₂, x₃, x₄, x₅)
 #     all of it reversed                 (x₅, x₄, x₃, x₂, x₁)
 #     places 1 to 4 reversed             (x₂, x₃, x₄, x₅, x₁)
-function roll_backward!(X::Batched)
-    d = ndims(X)
-    reverse!(X; dims=d)
-    reverse!(states(X, 1:nsegments(X)-1); dims=d)
+function roll_backward!(X::Batched{T, N}) where {T, N}
+    reverse!(X; dims=N)
+    reverse!(states(X, 1:nsegments(X)-1); dims=N)
     return X
 end
 
 # The Euclidean product of the numbers of a state, the real part for complex ones: an array whose
 # last dimension runs over the states and the others have size one, on the device of X. An array
 # type of the caller's gives its own method when its states have another product
-dots(X::Batched, Y::Batched) = sum(real.(conj.(X) .* Y); dims=1:ndims(X) - 1)
+dots(X::Batched{T, N}, Y::Batched{T, N}) where {T, N} = sum(real.(conj.(X) .* Y); dims=1:N-1)
 
 # in the shape of dots, on the device of X
-coefficients(X::Batched, c::AbstractVector) =
-    copyto!(similar(X, real(eltype(X)), ntuple(_ -> 1, ndims(X) - 1)..., length(c)), c)
+coefficients(X::Batched{T, N}, c::AbstractVector) where {T, N} =
+    copyto!(similar(X, real(T), ntuple(_ -> 1, N - 1)..., length(c)), c)
