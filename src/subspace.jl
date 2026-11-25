@@ -131,35 +131,44 @@ function iterate!(S::Subspace)
     z  = S.z
     k′ = length(S.V)
 
-    # ---- the bases before the step ----
-    #      Vᵢ^(r-1), kept in U
+    # ---- the length of a segment, the same for all ----
+    #      τ = T/m
+    τ = period(z)/nsegments(z)
+
+    # ---- the bases before the step, kept in U: the preconditioner uses them with E, and the
+    #      turn compares the new ones with them ----
+    #      U[a] = (v₁ᵃ, …, v_mᵃ),   direction a of Vᵢ^(r-1) at every point i
     for a in 1:k′
         copyto!(S.U[a], S.V[a])
     end
 
-    # ---- the step: the k′ directions advanced together over the segments along the shooting
-    #      points, which become the end points of the segments ----
-    #      vᵢᵃ ← ψᵢ vᵢᵃ,   Xᵢ = φ_τ(uᵢ)
+    # ---- the k′ directions advanced together over the segments, along the shooting points: one
+    #      call on the vector of their batches. tmp starts as the shooting points and ends as the
+    #      end points of the segments, which the preconditioner takes from there ----
+    #      V[a] = (ψ₁ v₁ᵃ, …, ψ_m v_mᵃ),   tmp = (φ_τ(u₁), …, φ_τ(u_m))
     copyto!(S.tmp, z.X)
-    tangent!(S.P, S.tmp, S.V, period(z)/nsegments(z))
+    tangent!(S.P, S.tmp, S.V, τ)
 
-    # ---- the step: each image at the point it reaches, the last shifted ----
-    #      ψᵢ vᵢᵃ at point i + 1,   S(s) ψ_m v_mᵃ at point 1
+    # ---- each image at the point it reaches: that of segment i belongs to point i + 1, and that
+    #      of the last segment, shifted, to point 1 ----
+    #      V[a] = (S(s) ψ_m v_mᵃ, ψ₁ v₁ᵃ, …, ψ_{m-1} v_{m-1}ᵃ)
     for a in 1:k′
         nshifts(z) > 0 && shift!(S.P, _tail(S.V[a]), shifts(z))
         shift_forward!(S.V[a])
     end
 
-    # ---- the Galerkin blocks of the bases before the step, from the images ----
-    #      Eᵢ = Vᵢ₊₁^(r-1)ᵀ ψᵢ Vᵢ^(r-1)
+    # ---- the Galerkin blocks of the bases before the step: the images, not yet orthonormal, in
+    #      the old basis of the point they reach ----
+    #      Eᵢ = Uᵢ₊₁ᵀ ψᵢ Uᵢ,   E_m = U₁ᵀ S(s) ψ_m U_m
     _galerkin!(S.E, S.U, S.V)
 
-    # ---- the step: the QR factorisation of the images at every point ----
+    # ---- the new bases: the images orthonormalised at every point, across the k′ directions ----
     #      ψᵢ Vᵢ^(r-1) = Vᵢ₊₁^(r) Rᵢ^(r)
     _orthonormalise!(S.V)
 
-    # ---- the turn and its singular values ----
-    #      Zᵢ = Vᵢ^(r) - Vᵢ^(r-1) (Vᵢ^(r-1)ᵀ Vᵢ^(r)),   σⱼ(Zᵢ) = sin ϑⱼ,ᵢ
+    # ---- the turn at every point, how far the new span is from the old one, and its singular
+    #      values, for the test of the bases ----
+    #      Zᵢ = Vᵢ^(r) - Uᵢ (Uᵢᵀ Vᵢ^(r)),   σⱼ(Zᵢ) = sin ϑⱼ,ᵢ
     _turn!(S.Z, S.σ, S.U, S.V)
 
     return S
