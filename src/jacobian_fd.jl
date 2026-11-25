@@ -30,10 +30,10 @@ once, a central one twice, and the tangent equation never. `mul!(out, J, v)` or 
 - `difference::Symbol=:forward`: `:forward` or `:central`, as for `jacobianFD`.
 - `ϵ`: the relative step of `jacobianFD`, or `nothing` for its default.
 """
-mutable struct JacobianFD{V<:ShootingVector, D, A, H}
-     R::Residual        # the residual, of the flow and the shift
-     F::Any             # the right-hand side
-    dS::Any             # the generator of the shift, or nothing
+mutable struct JacobianFD{RT<:Residual, FT, DST, V<:ShootingVector, D, A, H}
+     R::RT              # the residual, of the flow and the shift
+     F::FT              # the right-hand side
+    dS::DST             # the generator of the shift, or nothing
      z::V               # the point, not a copy
      D::D               # the finite difference of the residual, of NKRoots.jl, at z
      f::A               # f at the seeds, for the phase condition at the first: computed at all of
@@ -60,13 +60,19 @@ mutable struct JacobianFD{V<:ShootingVector, D, A, H}
         h = similar(head(z.X))
         g₁ = typeof(h)[similar(h) for _ in 1:nshifts(z)]
 
-        J = new{typeof(z), typeof(D), typeof(f), typeof(h)}(R,
-                                                             F,
-                                                             dS,
-                                                             z,
-                                                             D,
-                                                             f,
-                                                             g₁)
+        J = new{typeof(R),
+                typeof(F),
+                typeof(dS),
+                typeof(z),
+                typeof(D),
+                typeof(f),
+                typeof(h)}(R,
+                           F,
+                           dS,
+                           z,
+                           D,
+                           f,
+                           g₁)
         return NKRoots.update!(J, z, D.Fx)
     end
 end

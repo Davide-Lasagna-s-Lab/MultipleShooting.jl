@@ -111,9 +111,9 @@ to `z` and makes steps there until the turn passes the test.
 - `k′::Int`: the number of directions of each basis, at least 1, required.
 - `S=nothing`: the shift, called as `S(X, s)`, for relative periodic orbits.
 """
-mutable struct Subspace{ZT<:ShootingVector, A}
-           L::Any                  # the tangent
-           S::Any                  # the shift, or nothing for periodic orbits
+mutable struct Subspace{LT, ST, ZT<:ShootingVector, A}
+           L::LT                   # the tangent
+           S::ST                   # the shift, or nothing for periodic orbits
            z::ZT                   # the point, not a copy: its seeds, period and shifts give
                                    # the tangent maps
            V::Vector{A}            # device: the bases after the last step, Vᵢ^(r), stored by
@@ -141,16 +141,19 @@ mutable struct Subspace{ZT<:ShootingVector, A}
         V = [Random.randn!(similar(X)) for _ in 1:k′]
         _orthonormalise!(V)
 
-        return new{typeof(z), typeof(X)}(L,
-                                          S,
-                                          z,
-                                          V,
-                                          similar.(V),
-                                          fill(Inf, k′, k′, m),
-                                          similar.(V),
-                                          fill(Inf, k′, m),
-                                          similar(X),
-                                          0)
+        return new{typeof(L),
+                   typeof(S),
+                   typeof(z),
+                   typeof(X)}(L,
+                              S,
+                              z,
+                              V,
+                              similar.(V),
+                              fill(Inf, k′, k′, m),
+                              similar.(V),
+                              fill(Inf, k′, m),
+                              similar(X),
+                              0)
     end
 end
 

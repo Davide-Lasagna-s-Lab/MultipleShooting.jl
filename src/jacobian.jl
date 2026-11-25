@@ -50,12 +50,12 @@ conditions. Building it integrates the seeds once, by the tangent with no pertur
 - `dG=nothing`: the derivative of the flow in τ, called as `dG(X, V, τ)`, for the column of the
   period of the integrator, or `nothing` for `F` at the end points.
 """
-mutable struct Jacobian{V<:ShootingVector, A, H}
-       L::Any            # the tangent
-       F::Any            # the right-hand side
-       S::Any            # the shift, or nothing for periodic orbits
-      dS::Any            # its generator, or nothing
-      dG::Any            # the derivative of the flow in τ, or nothing for F at the end points
+mutable struct Jacobian{LT, FT, ST, DST, DGT, V<:ShootingVector, A, H}
+       L::LT             # the tangent
+       F::FT             # the right-hand side
+       S::ST             # the shift, or nothing for periodic orbits
+      dS::DST            # its generator, or nothing
+      dG::DGT            # the derivative of the flow in τ, or nothing for F at the end points
        z::V              # the point, not a copy
      tmp::A              # work batch: the end points, then the seeds advanced with the vectors
     dXdT::A              # the column of the period: in row i, the derivative in T of the end of
@@ -78,17 +78,24 @@ mutable struct Jacobian{V<:ShootingVector, A, H}
         gₘ   = typeof(h)[similar(h) for _ in 1:nshifts(z)]
         g₁   = typeof(h)[similar(h) for _ in 1:nshifts(z)]
 
-        J = new{typeof(z), typeof(f), typeof(h)}(L,
-                                                 F,
-                                                 S,
-                                                 dS,
-                                                 dG,
-                                                 z,
-                                                 tmp,
-                                                 dXdT,
-                                                 gₘ,
-                                                 f,
-                                                 g₁)
+        J = new{typeof(L),
+                typeof(F),
+                typeof(S),
+                typeof(dS),
+                typeof(dG),
+                typeof(z),
+                typeof(f),
+                typeof(h)}(L,
+                           F,
+                           S,
+                           dS,
+                           dG,
+                           z,
+                           tmp,
+                           dXdT,
+                           gₘ,
+                           f,
+                           g₁)
         return NKRoots.update!(J, z)
     end
 end

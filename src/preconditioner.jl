@@ -96,12 +96,13 @@ with E is checked: a relative residual above 1e-6 is an error, the sign of an E 
 - `every::Int=1`: the Newton steps between two updates, 0 to update at the first only;
   `M.updated` says, Newton step by Newton step, whether it was updated.
 """
-mutable struct Preconditioner{ST<:Subspace}
-           S::ST                                         # the subspace iteration along the loop
-           F::Any                                        # the right-hand side
-          dS::Any                                        # the generator of the shift, or nothing
+mutable struct Preconditioner{BT<:Subspace, FT, DST}
+           S::BT                                         # the subspace iteration along the loop
+           F::FT                                         # the right-hand side
+          dS::DST                                        # the generator of the shift, or nothing
            E::SparseArrays.SparseMatrixCSC{Float64, Int} # the coarse matrix, m k′ + 1 + nshifts square
-          QR::Any                                        # its sparse QR factorisation
+          QR::Union{Nothing, SparseArrays.SPQR.QRSparse{Float64, Int}}
+                                                         # its sparse QR factorisation
          tol::Float64                                    # ε_sub, the tolerance on the turn
     maxsteps::Int                                        # subspace steps at most per update
            k::Int                                        # the leading directions tested
@@ -137,17 +138,19 @@ mutable struct Preconditioner{ST<:Subspace}
         update!(B, z; tol=tol, k=k, maxsteps=maxsteps, cap=cap)
 
         # ---- the coarse matrix, from the bases before the last step ----
-        M = new{typeof(B)}(B,
-                           F,
-                           dS,
-                           SparseArrays.spzeros(0, 0),
-                           nothing,
-                           tol,
-                           maxsteps,
-                           k,
-                           cap,
-                           every,
-                           Bool[])
+        M = new{typeof(B),
+                typeof(F),
+                typeof(dS)}(B,
+                            F,
+                            dS,
+                            SparseArrays.spzeros(0, 0),
+                            nothing,
+                            tol,
+                            maxsteps,
+                            k,
+                            cap,
+                            every,
+                            Bool[])
         return _assemble!(M)
     end
 end
