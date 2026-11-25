@@ -8,8 +8,9 @@
 #     dpropagate!(P, X, V, τ)  as propagate!, and V the derivative in τ of the  period
 #                              end points; by default f at the end points
 #     rhs!(P, F, X)            the time derivative f at every state of X       period, phase
-#     tangent!(P, X, V, τ)     advance the states of X, and the k′ blocks of   Jacobian, subspace
-#                              V by the tangent equation along them
+#     tangent!(P, X, V, τ)     advance the states of X, and those of V by      Jacobian, subspace
+#                              the tangent equation along them; V a batch
+#                              like X, or a vector of k′ of them
 #     shift!(P, X, s)          shift every state of X by the shifts s          relative orbits
 #     dshift!(P, G, X, j)      the generator of shift j at every state of X    relative orbits
 #     forced!(P, X, V, τ)      as tangent!, forced by ∂f/∂p                    sensitivity
@@ -83,23 +84,23 @@ function rhs! end
 """
     tangent!(P, X, V, τ) -> V
 
-Advance every state of the batch `X` by the time `τ`, and the perturbations of the batch `V` by
-the tangent equation along them, all in place. `V` holds k′ ≥ 1 blocks of perturbations, each
-like `X`, as [`similar_blocks`](@ref) makes, k′ = `nsegments(V) ÷ nsegments(X)`, and every block
-is advanced along the states of `X`, which are advanced once,
+Advance every state of the batch `X` by the time `τ`, and the perturbations `V` by the tangent
+equation along them, all in place. `V` is a batch like `X`, one perturbation of every state, for a
+product of the Jacobian, or a vector of k′ such batches, `V[a]` the perturbation a of every state,
+for the k′ directions of every shooting point of a subspace step: a propagator gives a method for
+each. Every batch is advanced along the states of `X`, which are advanced once,
 
     xᵢ ← φ_τ(xᵢ),   vᵢᵃ ← ψᵢ vᵢᵃ,   ψᵢ = ∂φ_τ/∂x(xᵢ),   a = 1, …, k′,
 
 with ψᵢ v the solution at τ of v' = ∂f/∂x(x(t)) v from v(0) = v, along the trajectory x(t) from
-xᵢ: the tangent map of the integrator, for the Jacobian of its residual to be exact. One block,
-a batch like `X`, for a product of the Jacobian; k′ for the k′ directions of every shooting point
-of a subspace step.
+xᵢ: the tangent map of the integrator, for the Jacobian of its residual to be exact. How the k′
+batches are advanced together, at once on a GPU or one after the other, is for the propagator.
 
 # Arguments
 - `P`: the propagator.
 - `X`: a batch of m states, overwritten with their images.
-- `V`: a batch of k′ blocks of m perturbations, block a what [`block`](@ref) gives, overwritten
-  with their images by the tangent maps.
+- `V`: a batch of m perturbations, or a vector of k′ of them, overwritten with their images by the
+  tangent maps.
 - `τ::Real`: the time.
 """
 function tangent! end

@@ -196,29 +196,27 @@ end
     @test all(reduce(hcat, Sₛ.V[a]) ≈ S.V[a] for a in 1:2)
     @test Sₛ.E ≈ S.E
 
-    # ---- the bases are the blocks of one batch, with no copy; a step leaves the end points of
-    #      the segments, bases that span the images that tangent! gives of each direction alone,
-    #      at the point they reach, and the Galerkin blocks of the bases before it,
-    #      Eᵢ = Uᵢ₊₁ᵀ ψᵢ Uᵢ ----
+    # ---- a step leaves the end points of the segments, bases that span the images that tangent!
+    #      gives of each direction alone, at the point they reach, and the Galerkin blocks of the
+    #      bases before it, Eᵢ = Uᵢ₊₁ᵀ ψᵢ Uᵢ ----
     τ = period(ab)/4
     W = map(S.V) do Vᵃ
         tangent!(L, copy(ab.X), copy(Vᵃ), τ)
     end
     Wᵢ(i) = reduce(hcat, [Wᵇ[:, i] for Wᵇ in W])
     iterate!(S)
-    @test all(parent(S.V[a]) === S.Vk′ for a in 1:2)
     @test all(Vᵢ(i % 4 + 1)*(Vᵢ(i % 4 + 1)'*Wᵢ(i)) ≈ Wᵢ(i) for i in 1:4)
     @test S.tmp ≈ propagate!(L, copy(ab.X), τ)
     @test all(S.E[:, :, i] ≈ Uᵢ(i % 4 + 1)'*reduce(hcat, [Wᵇ[:, i] for Wᵇ in W]) for i in 1:4)
 
-    # ---- tangent! advances the blocks of several directions along the states, each as on the
-    #      block alone, and leaves the end points in the states ----
+    # ---- tangent! advances the batches of several directions along the states, each as on the
+    #      batch alone, and leaves the end points in the states ----
     X = copy(ab.X)
-    V = reduce(hcat, S.V)
+    V = copy.(S.V)
     W = [tangent!(L, copy(ab.X), copy(Vᵃ), τ) for Vᵃ in S.V]
     tangent!(L, X, V, τ)
     @test X ≈ propagate!(L, copy(ab.X), τ)
-    @test all(block(V, a, 4) ≈ W[a] for a in 1:2)
+    @test all(V[a] ≈ W[a] for a in 1:2)
 
     # ---- on bases that have settled, the update passes the test after one step ----
     MultipleShooting.update!(S, ab; tol=1e-12)

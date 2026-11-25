@@ -39,7 +39,10 @@ MultipleShooting.propagate!(P::CyclePropagator, X::AbstractMatrix, τ::Real) =
     (rk4!((dX, Y) -> cycle_rhs!(dX, Y, P.μ), X, τ, P.dt); X)
 
 MultipleShooting.tangent!(P::CyclePropagator, X::AbstractMatrix, V::AbstractMatrix, τ::Real) =
-    rk4_blocks!((dX, Y) -> cycle_rhs!(dX, Y, P.μ), (dV, Y, W) -> cycle_lin!(dV, Y, W, P.μ), X, V, τ, P.dt)
+    (rk4!((dX, Y) -> cycle_rhs!(dX, Y, P.μ), (dV, Y, W) -> cycle_lin!(dV, Y, W, P.μ), X, V, τ, P.dt); V)
+
+MultipleShooting.tangent!(P::CyclePropagator, X::AbstractMatrix, V::AbstractVector{<:AbstractMatrix}, τ::Real) =
+    directions!(P, X, V, τ)
 
 # the tangent equation forced by the derivative of the right-hand side in μ, ∂f/∂μ = (x, y)
 MultipleShooting.forced!(P::CyclePropagator, X::AbstractMatrix, V::AbstractMatrix, τ::Real) =

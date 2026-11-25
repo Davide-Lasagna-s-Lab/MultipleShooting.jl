@@ -12,11 +12,11 @@
 #     ψᵢ Vᵢ^(r-1) = Vᵢ₊₁^(r) Rᵢ^(r),   i = 1, …, m - 1,   S(s) ψ_m V_m^(r-1) = V₁^(r) R_m^(r),
 #
 # a QR factorisation by two passes of modified Gram–Schmidt, with Rᵢ^(r) upper triangular. The k′
-# directions of the m segments form one batch of m k′ states, which tangent! advances in one call
-# along the shooting points, so that a step costs k′ integrations of the tangent equation over the
-# orbit, and one of the equation when the propagator shares it among the directions. On a fixed loop the distance of the leading k
-# invariant directions from the span of the whole basis falls by about e^{-(Λ_k - Λ_{k′+1}) τ} per
-# step, with Λ the Floquet exponents.
+# directions of the m segments go to tangent! in one call, so that a step costs k′ integrations of
+# the tangent equation over the orbit, and one of the equation when the propagator shares it among
+# the directions. On a fixed loop the distance of the leading k invariant directions from the span
+# of the whole basis falls by about e^{-(Λ_k - Λ_{k′+1}) τ} per step, with Λ the Floquet
+# exponents.
 #
 # The Galerkin blocks. The same images give the blocks of the Galerkin matrix of the bases before
 # the step,
@@ -46,18 +46,16 @@
 # vectors, may still be turning: the turn falls at the rate Λ_k - Λ_{k′+1}, with no need of a gap
 # after the kth exponent.
 #
-# The layout. The bases are one batch of k′ blocks, each like the shooting points, block a the
-# direction a at every point, made by similar_blocks: how the blocks lie in it is up to the type
-# of the batch, one after the other for an array (seeds.jl). tangent! advances it along the
-# shooting points, so that a propagator on a GPU advances the m k′ states together, and integrates
-# the shooting points once for all the directions. V[a] is block a, from block, a view of the
-# batch and not a copy,
+# The layout. The bases are k′ batches like the shooting points, one per direction: V[a] holds
+# direction a at every point,
 #
-#     V[a] = (v₁ᵃ, v₂ᵃ, …, v_mᵃ),
+#     V[1] = (v₁¹, v₂¹, …, v_m¹),   …,   V[k′] = (v₁ᵏ′, v₂ᵏ′, …, v_mᵏ′),
 #
-# a batch like the shooting points, shifted and moved forward as a vector of the Jacobian is.
-# Gram–Schmidt runs across the k′ blocks, state by state, in the order of the directions. The
-# bases before a step and the turn, U and Z, are k′ batches of their own.
+# so that each is shifted and moved forward as a vector of the Jacobian is. A step hands them all
+# to tangent!, the vector of the k′ batches as it is, and it is for the propagator to advance them
+# together, the m k′ states at once on a GPU, with the shooting points integrated once for all the
+# directions. Gram–Schmidt runs across the k′ batches, state by state, in the order of the
+# directions. The bases before a step and the turn, U and Z, are k′ batches as well.
 
 """
     Subspace(P, z; k′)
@@ -73,11 +71,10 @@ to `z` and makes steps there until the turn passes the test.
 - `z::MultiVector`: the point, kept, not copied.
 - `k′::Int`: the number of directions of each basis, at least 1, required.
 """
-mutable struct Subspace{PT, ZT<:MultiVector, A, B, C}
+mutable struct Subspace{PT, ZT<:MultiVector, A}
       P::PT                 # the propagator
       z::ZT                 # the point, not a copy: its seeds, period and shifts give the tangent maps
-    Vk′::B                  # the bases after the last step, Vᵢ^(r), one batch of k′ blocks
-      V::Vector{C}          # its blocks, views: V[a] holds direction a at every point
+      V::Vector{A}          # the bases after the last step, Vᵢ^(r): V[a] holds direction a
       U::Vector{A}          # the bases before it, Vᵢ^(r-1), which the preconditioner uses with E
       E::Array{Float64, 3}  # their Galerkin blocks Eᵢ = E[:, :, i], k′ × k′ × m, Inf before any step
       Z::Vector{A}          # the turn of the last step, Zᵢ, then the orthonormal factor of its QR
@@ -92,22 +89,20 @@ mutable struct Subspace{PT, ZT<:MultiVector, A, B, C}
         k′ >= 1 ||
             throw(ArgumentError("k′ must be at least 1"))
 
-        # ---- random orthonormal bases: one batch of k′ blocks of m states, and its blocks ----
-        X   = z.X
-        Vk′ = Random.randn!(similar_blocks(X, k′))
-        V   = [block(Vk′, a, m) for a in 1:k′]
+        # ---- random orthonormal bases, a batch per direction ----
+        X = z.X
+        V = [Random.randn!(similar(X)) for _ in 1:k′]
         _orthonormalise!(V)
 
-        return new{typeof(P), typeof(z), typeof(X), typeof(Vk′), eltype(V)}(P,
-                                                                            z,
-                                                                            Vk′,
-                                                                            V,
-                                                                            [similar(X) for _ in 1:k′],
-                                                                            fill(Inf, k′, k′, m),
-                                                                            [similar(X) for _ in 1:k′],
-                                                                            fill(Inf, k′, m),
-                                                                            similar(X),
-                                                                            0)
+        return new{typeof(P), typeof(z), typeof(X)}(P,
+                                                    z,
+                                                    V,
+                                                    similar.(V),
+                                                    fill(Inf, k′, k′, m),
+                                                    similar.(V),
+                                                    fill(Inf, k′, m),
+                                                    similar(X),
+                                                    0)
     end
 end
 
@@ -126,8 +121,8 @@ images give the Galerkin blocks of the bases before the step,
 After it the new bases give the turn Zᵢ and its singular values, `S.σ[:, i]`, the sines of the
 principal angles between the old span at point i and the new, in increasing order. The bases before
 the step are kept in `S.U`, and the end points of the segments, φ_τ(uᵢ), in `S.tmp`. The k′
-directions advance together, as one batch of m k′ states along the shooting points, by one call of
-[`tangent!`](@ref).
+directions advance together along the shooting points, by one call of [`tangent!`](@ref) on the
+vector of their batches.
 
 # Arguments
 - `S::Subspace`: the subspace, changed.
@@ -142,14 +137,13 @@ function iterate!(S::Subspace)
         copyto!(S.U[a], S.V[a])
     end
 
-    # ---- the step: the batch of the k′ directions advanced over the segments along the shooting
+    # ---- the step: the k′ directions advanced together over the segments along the shooting
     #      points, which become the end points of the segments ----
     #      vᵢᵃ ← ψᵢ vᵢᵃ,   Xᵢ = φ_τ(uᵢ)
     copyto!(S.tmp, z.X)
-    tangent!(S.P, S.tmp, S.Vk′, period(z)/nsegments(z))
+    tangent!(S.P, S.tmp, S.V, period(z)/nsegments(z))
 
-    # ---- the step: each image at the point it reaches, the last shifted, block by block and in
-    #      place ----
+    # ---- the step: each image at the point it reaches, the last shifted ----
     #      ψᵢ vᵢᵃ at point i + 1,   S(s) ψ_m v_mᵃ at point 1
     for a in 1:k′
         nshifts(z) > 0 && shift!(S.P, _tail(S.V[a]), shifts(z))

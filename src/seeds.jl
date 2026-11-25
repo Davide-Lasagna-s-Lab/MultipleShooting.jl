@@ -6,8 +6,6 @@
 #     nsegments(X)            the number of states
 #     states(X, r)            the states r, as a batch, without a copy
 #     similar_states(X, b)    a batch like X with b states
-#     similar_blocks(X, k′)   a batch of k′ blocks, each like X
-#     block(V, a, m)          block a of a batch of blocks of m states
 #     shift_forward!(X)       the states moved forward by one slot, cyclically
 #     shift_backward!(X)      and back by one
 #     dots(X, Y)              the inner products of the states, one per state
@@ -48,25 +46,6 @@ A batch like `X` with `b` states, its entries not set: for an array, of the type
 gives for the new size, which the propagator must be able to advance.
 """
 similar_states(X, b::Int) = similar(X, eltype(X), (Base.front(size(X))..., b))
-
-"""
-    similar_blocks(X, k′) -> V
-
-A batch of `k′` blocks, each like the batch `X`, its entries not set: room for k′ vectors at every
-state of `X`, as the k′ directions of a subspace step at every shooting point, which
-[`tangent!`](@ref) advances along the states. How the blocks lie in it is up to the type of the
-batch: the package reaches them by [`block`](@ref) only. For an array, one after the other along
-the last dimension, k′ m states for the m of `X`.
-"""
-similar_blocks(X, k′::Int) = similar_states(X, k′*nsegments(X))
-
-"""
-    block(V, a, m) -> Y
-
-Block `a` of the batch `V` of blocks of `m` states, as [`similar_blocks`](@ref) makes: a batch of
-m states that shares them, without a copy. For an array, the states (a - 1)m + 1 to am.
-"""
-block(V, a::Int, m::Int) = states(V, ((a - 1)*m + 1):(a*m))
 
 """
     shift_forward!(X) -> X
