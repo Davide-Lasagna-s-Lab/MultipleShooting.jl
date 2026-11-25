@@ -138,9 +138,8 @@ function LinearAlgebra.mul!(out::MultiVector, J::Jacobian, v::MultiVector)
     # ---- plus the period column, and the shift columns at the end of the last segment ----
     #      outᵢ += δT Fᵢ, Fᵢ = (1/m) ∂φ_τ(uᵢ)/∂τ,   out_m += Σⱼ δsⱼ gⱼ(S(s) φ_τ(u_m))
     out.X .+= δT .* J.F
-    last    = _tail(out.X)
     for j in 1:nshifts(J.z)
-        last .+= shift(v, j) .* J.G[j]
+        _tail(out.X) .+= shift(v, j) .* J.G[j]
     end
 
     # ---- each row in the row of the seed it has to reach, minus the vector ----
