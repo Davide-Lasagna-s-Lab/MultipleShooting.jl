@@ -47,7 +47,7 @@ its own, `../NKRoots.jl`:
 
 ```
 git clone https://github.com/Davide-Lasagna-s-Lab/NKRoots.jl
-git clone https://github.com/gasagna/MultipleShooting.jl
+git clone https://github.com/Davide-Lasagna-s-Lab/MultipleShooting.jl
 julia -e 'using Pkg; Pkg.develop(path="MultipleShooting.jl")'
 ```
 
