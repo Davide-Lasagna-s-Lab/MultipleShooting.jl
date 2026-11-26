@@ -12,7 +12,8 @@
 #     similar(X)     gives a vector of references that are not set, with no state behind them
 #     copy(X)        gives another vector of the same states, so that a copy changes with X
 #     Y .= X         makes the states of Y those of X: in the residual, r .= z followed by the
-#                    propagation of r would overwrite the unknowns, and r - z would vanish
+#                    advance of r by the flow would overwrite the unknowns, and r - z would
+#                    vanish
 #
 # and a vector of m states could not be told from the vector of the k′ directions that the tangent
 # takes. Sliced wraps the vector and gives each of these operations state by state, so that the

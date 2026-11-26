@@ -1,7 +1,7 @@
-# GMRES, on its own: the solution of A x = b from x = 0, for a linear operator applied in place,
-# A!(out, v) -> out, on any vector that broadcasts and has dot, norm and similar, such as a
-# ShootingVector. Each iteration adds one vector to the orthonormal basis Q of the Krylov space,
-# by an Arnoldi step,
+# GMRES (Saad & Schultz 1986), on its own: the solution of A x = b from x = 0, for a linear
+# operator applied in place, A!(out, v) -> out, on any vector that broadcasts and has dot, norm
+# and similar, such as a ShootingVector. Each iteration adds one vector to the orthonormal basis
+# Q of the Krylov space, by an Arnoldi step,
 #
 #     A Qₙ = Qₙ₊₁ Hₙ,   Hₙ upper Hessenberg, (n + 1) × n,
 #
@@ -15,14 +15,15 @@
 """
     gmres(A!, b; tol=1e-8, maxiter=100) -> (x, H, residuals)
 
-The solution of `A x = b` by GMRES from `x = 0`, without restarts, with the history of the run,
+The solution of `A x = b` by GMRES (Saad & Schultz 1986) from `x = 0`, without restarts, with
+the history of the run,
 
     A Qₙ = Qₙ₊₁ Hₙ,   xₙ = argmin ‖b - A x‖  over x in span(Qₙ),   Qₙ = (q₁, …, qₙ),
 
 with Qₙ an orthonormal basis of the Krylov space span(b, A b, …, Aⁿ⁻¹ b) and Hₙ upper
 Hessenberg, (n + 1) × n. It stops when the residual falls below `tol ‖b‖`, or after `maxiter`
-iterations, one product with `A` each. The leading square blocks of `H` hold the Ritz values of
-every iteration, by [`ritz_values`](@ref).
+iterations, one product with `A` each; in the second case it warns. The leading square blocks of
+`H` hold the Ritz values of every iteration, by [`ritz_values`](@ref).
 
 # Arguments
 - `A!`: the linear operator, applied in place as `A!(out, v) -> out`.

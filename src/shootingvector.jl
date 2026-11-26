@@ -1,9 +1,10 @@
 # The unknowns of multiple shooting: the seeds u₁, …, u_m, in whatever the caller holds them, and
-# the scalars, the period T and one shift per continuous symmetry. They form one vector, with the inner product
+# scalars, the period T and one shift per continuous symmetry. They form one vector, with the inner
+# product
 #
-#     ⟨z, w⟩ = Σᵢ ⟨uᵢ, vᵢ⟩ + Σⱼ dⱼ d'ⱼ,
+#     ⟨z, z′⟩ = Σᵢ ⟨uᵢ, u′ᵢ⟩ + T T′ + Σⱼ sⱼ s′ⱼ,
 #
-# where ⟨uᵢ, vᵢ⟩ is the inner product of two states, that of the seeds, dots (see
+# where ⟨uᵢ, u′ᵢ⟩ is the inner product of two states, that of the seeds, dots (see
 # interface.jl): GMRES, the phase conditions, the bases of the subspace iteration and the
 # preconditioner all take it from there, so that they share one geometry.
 #
@@ -19,16 +20,18 @@ The unknowns of multiple shooting, the seeds and the scalars,
 
     z = (u₁, …, u_m, T, s₁, …, s_c),
 
-with the inner product ⟨z, w⟩ = Σᵢ ⟨uᵢ, wᵢ⟩ + Σⱼ dⱼ d′ⱼ, the sum of those of the states,
-[`dots`](@ref) of the seeds, and of the scalars. The m segments have the same length, T/m. It
-broadcasts like a vector, `w .= α .* z .+ w`, on the seeds and the scalars separately.
+with the inner product ⟨z, z′⟩ = Σᵢ ⟨uᵢ, u′ᵢ⟩ + T T′ + Σⱼ sⱼ s′ⱼ: the sum of the products of
+the states, [`dots`](@ref) of the seeds, and the Euclidean one of the scalars, with no weight
+between the two. The m segments have the same length, T/m. `dot` takes the real part, `norm` is
+its square root. It broadcasts like a vector, `w .= α .* z .+ w`, on the seeds and the scalars
+separately.
 
 # Arguments
 - `X`: the seeds, m states, of a type with the methods that interface.jl asks of the seeds: an
   array of numbers, a [`Batched`](@ref), a [`Sliced`](@ref), or a type of the caller's.
-- `d::Vector{Float64}`: the scalars `[T, s₁, s₂, …]`, the period followed by one shift per
-  continuous symmetry, `[T]` for a periodic orbit. [`period`](@ref), [`nshifts`](@ref) and
-  [`shift`](@ref) read them.
+- `d::AbstractVector`: the scalars `[T, s₁, s₂, …]`, the period followed by one shift per
+  continuous symmetry, `[T]` for a periodic orbit, converted to `Vector{Float64}`.
+  [`period`](@ref), [`nshifts`](@ref) and [`shift`](@ref) read them.
 """
 struct ShootingVector{A}
     X::A               # the seeds
@@ -89,6 +92,7 @@ takes, one number each, as `S(X, shifts(z)...)`.
 """
 shifts(z::ShootingVector) = view(z.d, 2:lastindex(z.d))
 
+# similar and copy act on the seeds and on the scalars; copy is deep
 Base.similar(z::ShootingVector) = ShootingVector(similar(z.X), similar(z.d))
 
 Base.copy(z::ShootingVector) = ShootingVector(copy(z.X), copy(z.d))

@@ -14,7 +14,7 @@ The Jacobian of the multiple-shooting residual of the flow `G` at `z`, matrix fr
 finite difference `jacobianFD` of NKRoots.jl of the [`Residual`](@ref), with the phase rows of
 [`Jacobian`](@ref),
 
-    J v ≈ (F(z + ε v) - F(z))/ε,   (J v)_T = ⟨f(u₁), v₁⟩,   (J v)_sⱼ = ⟨gⱼ(u₁), v₁⟩,
+    J v ≈ (R(z + ε v) - R(z))/ε,   (J v)_T = ⟨f(u₁), v₁⟩,   (J v)_sⱼ = ⟨gⱼ(u₁), v₁⟩,
 
 or the central difference, with the step ε of `jacobianFD`. A forward product integrates the seeds
 once, a central one twice, and the tangent equation never. `mul!(out, J, v)` or `J*v` applies it,
@@ -82,8 +82,9 @@ end
     update!(J::JacobianFD, z) -> J
 
 Move `J` to the point `z`: the difference to `z`, with the residual `r` there, and f and the
-generators at the first seed, with no integration. The first form is the one `nkroot!` of
-NKRoots.jl calls; the second evaluates the residual, with one integration of the seeds.
+generators at the first seed, with no integration. A method of `NKRoots.update!`: the first form
+is the one `nkroot!` of NKRoots.jl calls; the second evaluates the residual, with one integration
+of the seeds.
 
 # Arguments
 - `J::JacobianFD`: the Jacobian, changed.
@@ -109,8 +110,11 @@ end
 NKRoots.update!(J::JacobianFD, z::ShootingVector) =
     NKRoots.update!(J, z, J.R(similar(z), z))
 
+# out = J v: the difference of the residual, which integrates the seeds (once forward, twice
+# central), and the phase rows from the stored f and generators.
 function LinearAlgebra.mul!(out::ShootingVector, J::JacobianFD, v::ShootingVector)
-    # ---- the difference of the residual: the rows of the seeds, with the period and the shifts ----
+    # ---- the difference of the residual: the rows of the seeds, with the period and the
+    #      shifts ----
     LinearAlgebra.mul!(out, J.D, v)
 
     # ---- the phase conditions, in time and in space: dot of LinearAlgebra on the first states,

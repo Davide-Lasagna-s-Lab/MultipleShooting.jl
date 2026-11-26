@@ -1,4 +1,5 @@
-# The Jacobian of the residual, matrix free, with the products by the tangent equation.
+# The Jacobian of the residual, matrix free, with the products by the tangent equation, the
+# variational equations of Sánchez et al. (2004) along every segment.
 #
 # With the reordered rows of residual.jl, the Jacobian at z applied to v = (v₁, …, v_m, δT, δs₁, …)
 # has in the row of segment i + 1
@@ -45,8 +46,8 @@ conditions. Building it integrates the seeds once, by the tangent with no pertur
 - `L`: the tangent, called as `L(X, V, τ)` with one perturbation of every seed.
 - `F`: the right-hand side, called as `F(dX, X)`.
 - `z::ShootingVector`: the point, kept, not copied; `update!(J, z)` moves it to another.
-- `S=nothing`, `dS=nothing`: the shift, called as `S(X, s...)`, and its generator, as `dS(dX, X, j)`,
-  for relative periodic orbits.
+- `S=nothing`, `dS=nothing`: the shift, called as `S(X, s...)`, and its generator, as
+  `dS(dX, X, j)`, for relative periodic orbits.
 - `dG=nothing`: the derivative of the flow in τ, called as `dG(X, V, τ)`, for the column of the
   period of the integrator, or `nothing` for `F` at the end points.
 """
@@ -105,8 +106,8 @@ end
     update!(J::Jacobian, z, r) -> J
 
 Move `J` to the point `z`: the column of the period, and f and the generators at the end points
-of the segments and at the first seed, with one integration of the seeds. The second form is the
-one `nkroot!` of NKRoots.jl calls.
+of the segments and at the first seed, with one integration of the seeds. A method of
+`NKRoots.update!`; the second form is the one `nkroot!` of NKRoots.jl calls.
 
 # Arguments
 - `J::Jacobian`: the Jacobian, changed.
@@ -153,6 +154,8 @@ end
 # as nkroot! of NKRoots.jl calls it, at the start of every Newton iteration
 NKRoots.update!(J::Jacobian, z::ShootingVector, r::ShootingVector) = NKRoots.update!(J, z)
 
+# out = J v. One integration of the seeds per product (the tangent L, in place on the device of
+# the seeds); tmp is the only work batch, and the phase rows are dots on the host.
 function LinearAlgebra.mul!(out::ShootingVector, J::Jacobian, v::ShootingVector)
     τ  = period(J.z)/nsegments(J.z)
     δT = period(v)

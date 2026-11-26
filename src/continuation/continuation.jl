@@ -4,9 +4,14 @@
 # together, x = (z, p). From a point of the branch with its unit tangent t, the next point is the
 # predictor x + h t, a step of length h along the tangent, brought back to the branch by the
 # search with the parameter free of parameter.jl, which lands on the branch near the predictor and
-# gives the tangent there. The step is halved when the search does not converge in _CORRECTOR
-# iterations, or when the tangent makes a cosine below _TURN with the one before, and grows by half
-# after a search of _EASY iterations or fewer.
+# gives the tangent there. The corrector is Newton with the Moore–Penrose inverse of [J c], each
+# step at right angles to the tangent at its own iterate (Allgower & Georg 1990), not on the
+# hyperplane through the predictor at right angles to t, as in pseudo-arclength continuation
+# (Keller 1977). For the Newton–Krylov continuation of orbits see Sánchez et al. (2004) and
+# Sánchez & Net (2010). The step is halved when the search does not converge in _CORRECTOR
+# iterations, when the tangent makes a cosine below _TURN with the one before, or when the
+# preconditioner fails to build its bases there, and grows by half after a search of _EASY
+# iterations or fewer.
 #
 # The branch is followed up to an event, where a function of the point changes sign between two
 # points: the parameter less its target, or, with no target, the part of the tangent in the
@@ -23,17 +28,30 @@ const _CLOSE     = 20  # steps tried at most to close in on an event
     continuation!(family, G, L, F, z, p; sense=1, target=nothing, step=0.05, longest=2.0,
                   shortest=1e-4, points=100, kw...) -> (; status, p, path)
 
-Follow the branch of the orbit `z` at the parameter `p` as the parameter changes, by
-steps along its tangent, each corrected by the search of [`freesearch!`](@ref). With a `target`
-the continuation ends on the orbit at that parameter, through the folds of the branch if any.
-With none it ends at the first fold, where the parameter turns and the Jacobian is singular. The
-length of a step is that of the change of `(z, p)`.
+Follow the branch of the orbit `z` at the parameter `p` as the parameter changes: from the point
+x = (z, p) with unit tangent t, the predictor x + h t, a step of length `h` along the tangent,
+corrected back onto the branch by the search of [`freesearch!`](@ref), which also gives the
+tangent at the new point,
+
+    x₀ = (z, p),   x_{k+1} = corrector(x_k + h t_k),   t_{k+1} the unit null vector of [J c].
+
+The length `h` of a step is that of the change of `(z, p)`, with `p` weighed as one scalar of
+`z`. With a `target` the continuation ends on the orbit at that parameter, through the folds of
+the branch if any, by closing in on the zero of p - target between two points. With none it ends
+at the first fold, where the parameter turns, p' = 0, and J is singular; the fold is closed in on
+the zero of the part of t in p, to within a share of its value at the point before. The step is
+halved when the corrector fails, grows by half after an easy one, and stays in
+[`shortest`, `longest`]. The first point is the search of [`freesearch!`](@ref) from `(z, p)`,
+which may move `p` slightly onto the branch; when it does not converge the continuation ends
+there, with the status `:start`.
 
 # Arguments
 - `family`, `G`, `L`, `F`: those of [`freesearch!`](@ref).
-- `z::ShootingVector`: an orbit at the parameter `p`, overwritten with the last point.
+- `z::ShootingVector`: an orbit at the parameter `p`, or a guess near one, overwritten with the
+  last point.
 - `p::Real`: its parameter.
-- `sense::Int=1`: `1` for a parameter that grows at the start, `-1` for one that shrinks.
+- `sense::Int=1`: `1` for a parameter that grows at the start, `-1` for one that shrinks; it
+  fixes the sense of the first tangent, and the later ones keep it.
 - `target=nothing`: the parameter at which the continuation ends, or `nothing` to end at the
   first fold.
 - `step::Real=0.05`: the first step.
@@ -45,15 +63,17 @@ length of a step is that of the change of `(z, p)`.
   `R = Residual(G)` and `R₀` its value at a guess, `(r, z, a) -> (R(r, z); r .-= a .* R₀)` and
   `family = (x, a) -> x` follow the Newton homotopy `R(z) - a R₀ = 0` from `a = 1` to the
   `target` 0.
-- `kw...`: the other keywords of [`freesearch!`](@ref), but `maxiter`.
+- `kw...`: the other keywords of [`freesearch!`](@ref). `maxiter` limits the first search only;
+  the corrections stop at 8 iterations.
 
 # Returns
 A named tuple with
-- `status::Symbol`: `:target` or `:fold` at the event, `:points` after `points` points, or `:step`
-  when the step falls below `shortest`.
+- `status::Symbol`: `:target` or `:fold` at the event, `:points` after `points` points, `:step`
+  when the step falls below `shortest`, or `:start` when the first search does not converge.
 - `p::Float64`: the parameter of the last point.
-- `path`: the points, as the vectors `p`, the parameter, `period`, and `slope`, the part of the
-  unit tangent in the parameter.
+- `path`: the points, the first one included, as the vectors `p`, the parameter, `period`, and
+  `slope`, the part of the unit tangent in the parameter, dp/ds with s the length along the
+  branch.
 """
 function continuation!(  family,
                               G,
@@ -77,6 +97,10 @@ function continuation!(  family,
     t .= 0
     t.d[end] = sense
     out    = _free!(family, G, L, F, z, p, t; kw...)
+    out.status === :converged ||
+        return (status = :start,
+                p      = out.p,
+                path   = (p = Float64[], period = Float64[], slope = Float64[]))
     p      = out.p
     t      = out.tangent
     h      = float(step)

@@ -1,4 +1,4 @@
-# The residual of multiple shooting.
+# The residual of multiple shooting (Sánchez & Net 2010; Lasagna et al. 2026).
 #
 # With seeds u₁, …, u_m and period T the segments have the same length τ = T/m, and the equations
 # are
@@ -10,7 +10,8 @@
 #
 # The residual follows the equations: the seeds are advanced over their segments in r, the end of
 # the last segment is shifted, and each end point is moved into the row of the seed it has to
-# reach, before the seeds are subtracted. r is the only storage.
+# reach, before the seeds are subtracted. r is the only storage; the flow acts in place on the
+# device of the seeds, and the scalars stay on the host.
 #
 # A search may try a period far from that of its guess, near a point where the Jacobian is nearly
 # singular, and a full Newton step may even take the period below zero, where no segment exists.
@@ -34,8 +35,8 @@ not within `bounds` the residual is infinite, with no integration.
 # Arguments
 - `G`: the flow, called as `G(X, τ)`.
 - `S=nothing`: the shift, called as `S(X, s...)`, for relative periodic orbits.
-- `bounds::NTuple{2, Real}=(0.0, Inf)`: the least and the largest period, both excluded, as `(0.5T, 2T)` for a
-  guess of period `T`. The default refuses the periods that are not positive.
+- `bounds::NTuple{2, Real}=(0.0, Inf)`: the least and the largest period, both excluded, as
+  `(0.5T, 2T)` for a guess of period `T`. The default refuses the periods that are not positive.
 
 Called as `R(r, z)`, with
 - `r::ShootingVector`: overwritten with the residual;

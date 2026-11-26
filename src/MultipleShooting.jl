@@ -1,5 +1,10 @@
-# Multiple shooting for periodic orbits, matrix free: the unknowns, the residual and the product of
-# its Jacobian with a vector, on top of a flow and its tangent that advance batches of states.
+# Multiple shooting for periodic and relative periodic orbits, matrix free (Sánchez & Net 2010;
+# Lasagna et al. 2026). Seeds u₁, …, u_m, m segments of length τ = T/m, period T, shifts
+# s₁, …, s_c. The package holds the unknowns z = (u₁, …, u_m, T, s₁, …, s_c), the residual and the
+# product of its Jacobian with a vector, a subspace iteration, a preconditioner on it, GMRES, and
+# the searches in a parameter (sensitivity, continuation). It rests on callable objects of the
+# caller, the flow G, the tangent L, the right-hand side F, the shift S, which advance batches of
+# states (interface.jl).
 module MultipleShooting
 
 import LinearAlgebra

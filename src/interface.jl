@@ -92,7 +92,7 @@ tail(X) = states(X, nsegments(X):nsegments(X))
 """
     similar_states(X, b) -> Y
 
-An object like `X` with `b` states, its entries not set, which the propagator can advance.
+An object like `X` with `b` states, its entries not set, which the flow can advance.
 """
 function similar_states end
 

@@ -1,50 +1,52 @@
-# A right preconditioner of the Jacobian for Newton–Krylov, on the leading directions of the loop.
+# A right preconditioner of the Jacobian for Newton–Krylov, on the leading invariant subspaces of
+# the tangent maps at the shooting points: the preconditioner of multiple shooting of Sánchez & Net
+# (2010), in the spirit of the Newton–Picard method of Lust (1997) and Lust et al. (1998), with the
+# bases of subspace.jl (every seed its own, all at once, not Lust's sweep).
 #
-# With the reordered rows of residual.jl the Jacobian is A = -I + C + B: -I on the seeds, C the
+# With the reordered rows of residual.jl the Jacobian is J = -I + C + B: -I on the seeds, C the
 # cyclic block subdiagonal of the tangent maps, ψᵢ from seed i to seed i + 1 and S(s) ψ_m from the
 # last seed to the first, and B the columns of the period and of the shifts with the rows of the
 # phase conditions. The directions that the loop of tangent maps does not contract make GMRES slow,
-# about m iterations each. The bases of a subspace iteration hold them: with Uᵢ the orthonormal
+# about m iterations each. The bases of the subspace iteration hold them: with Uᵢ the orthonormal
 # basis of k′ directions at seed i,
 #
-#     W = blockdiag(U₁, …, U_m, I),   E = Wᵀ A W,   M⁻¹ = -(I - W Wᵀ) + W E⁻¹ Wᵀ,
+#     W = blockdiag(U₁, …, U_m, I),   E = Wᵀ J W,   M⁻¹ = -(I - W Wᵀ) + W E⁻¹ Wᵀ,
 #
-# the identity on the period and the shifts. M⁻¹ is -I, the inverse of the diagonal of A, outside
+# the identity on the period and the shifts. M⁻¹ is -I, the inverse of the diagonal of J, outside
 # the span of W, and an exact solve with E on it.
 #
-# The coarse matrix E comes with no integration of its own. After a subspace step the bases before
-# it, Uᵢ, and their Galerkin blocks, Eᵢ = Uᵢ₊₁ᵀ ψᵢ Uᵢ, from the images of the step, are both at
-# hand (subspace.jl), so that W is built from U and E is exact for these bases, whatever their
-# accuracy,
+# The coarse matrix E needs no integration of its own. After a subspace step the bases before it,
+# Uᵢ, and their Galerkin blocks Eᵢ = Uᵢ₊₁ᵀ ψᵢ Uᵢ, from the images of the step, are at hand
+# (subspace.jl), so that E is exact for these bases, whatever their accuracy. With w = S(s) φ_τ(u_m)
+# and gⱼ the generators of the shifts,
 #
 #     E[i + 1, i] = Eᵢ,   E[1, m] = E_m = U₁ᵀ S(s) ψ_m U_m,   E[i, i] = -I,
-#     E[i + 1, T] = Uᵢ₊₁ᵀ f(φ_τ(uᵢ))/m,   E[1, sⱼ] = U₁ᵀ gⱼ(S(s) φ_τ(u_m)),
+#     E[i + 1, T] = Uᵢ₊₁ᵀ f(φ_τ(uᵢ))/m,   E[1, sⱼ] = U₁ᵀ gⱼ(w),
 #     E[T, 1] = f(u₁)ᵀ U₁,   E[sⱼ, 1] = gⱼ(u₁)ᵀ U₁,
 #
-# with f and the generators at the end points of the segments and at the first seed: the column of
-# the period is f at the end points, the default of the Jacobian, enough for a preconditioner. The
-# subspace step integrates the seeds along with the bases, and leaves the end points φ_τ(uᵢ), so
-# that these need no integration of their own: an update of the preconditioner integrates the
-# seeds k′ times, those of its subspace step. E has m k′ + 1 + nshifts rows, and is factorised by
-# sparse QR, whose factors stay sparse on a long loop. Every solve with E is checked by its relative
-# residual, and one above SOLVETOL is an error: E is then close to singular, where no factorisation
-# is accurate, and M⁻¹ would be wrong with no sign of it. M⁻¹ needs to be accurate only next to the
-# tolerance of GMRES, so that SOLVETOL is loose enough for an E of condition number up to about 1e10.
+# with f at the end points of the segments (the column of the period of the Jacobian, as without
+# dG; enough for a preconditioner). The step leaves the end points φ_τ(uᵢ) in the subspace, so
+# that an update integrates only what its subspace steps do. E has m k′ + 1 + nshifts rows and is
+# factorised by sparse QR, whose factors stay sparse on a long loop. Every solve with E is checked
+# by its relative residual, and one above SOLVETOL is an error: E is then close to singular, where
+# no factorisation is accurate, and M⁻¹ would be wrong with no sign of it. M⁻¹ needs to be
+# accurate only next to the tolerance of GMRES; SOLVETOL is loose enough for a cond(E) up to about
+# 1e10.
 #
 # Host and device. The bases U and the vectors of the Krylov method are where the seeds live, on
-# the device; the coarse matrix E, its sparse QR factors and the coefficients g and y are on the
-# host, of size m k′ + 1 + nshifts. An application of M⁻¹ crosses twice. The restriction Wᵀ v is k′
-# inner products of whole seeds, m numbers each, copied to the host, one copy per direction. The
-# coarse solve is on the host. The prolongation W (g + y) sends back k′ vectors of m coefficients,
-# one per direction, by `coefficients`, each multiplying its U[k₁] on the device. Assembling E
-# copies to the host the projections of f on the bases, k′ copies of m numbers, and a few single
-# numbers at the first seed; the Galerkin blocks are on the host already (subspace.jl).
+# the device; E, its sparse QR factors and the coefficients g and y are on the host, of size
+# m k′ + 1 + nshifts. An application of M⁻¹ crosses twice. The restriction Wᵀ v is k′ inner
+# products of whole seeds, m numbers each, copied to the host, one copy per direction. The coarse
+# solve is on the host. The prolongation W (g + y) sends back, by `coefficients`, k′ vectors of m
+# coefficients, each multiplying its U[k₁] on the device. Assembling E copies to the host the
+# projections of f on the bases, k′ copies of m numbers, and a few single numbers at the first
+# seed; the Galerkin blocks are on the host already.
 #
-# Keeping the bases up during a search. After a Newton step the tangent maps change and the old
-# spans are no longer invariant. At every update the subspace makes steps at the new point from the
-# bases of the point before, at least one and at most `maxsteps`, until the turn of the leading `k`
-# directions is below `tol` at every seed (update! of subspace.jl). The keywords give the three
-# ways of the paper,
+# Keeping the bases up during a search (Lasagna et al. 2026). After a Newton step the tangent maps
+# change and the old spans are no longer invariant. At every update the subspace steps at the new
+# point from the bases of the point before, at least once and at most `maxsteps` times, until the
+# turn of the leading `k` directions is below `tol` at every seed (update! of subspace.jl). The
+# keywords give the three ways of the paper,
 #
 #     frozen           every = 0: the bases and E of the first Newton step, kept for good, with no
 #                      integration after it
@@ -62,39 +64,43 @@ const SOLVETOL = 1e-6
     Preconditioner(L, F, z; k′, S=nothing, dS=nothing, k=k′, tol=1e-8, maxsteps=100, sweeps=0,
                    cap=:error, every=1)
 
-A right preconditioner of the Jacobian at `z`, with the tangent `L` and the right-hand side `F`, on the
-leading directions of the loop, from a [`Subspace`](@ref) along it, with random bases at the start: with Uᵢ the
-bases of `k′` directions at the seeds,
+A right preconditioner of the Jacobian at `z`, on the leading invariant subspaces of the tangent
+maps at the seeds (Sánchez & Net 2010; in the spirit of the Newton–Picard method of Lust 1997,
+Lust et al. 1998), with the tangent `L` and the right-hand side `F`. With Uᵢ the orthonormal basis
+of `k′` directions at seed i, from a [`Subspace`](@ref) along the loop, random at the start,
 
-    W = blockdiag(U₁, …, U_m, I),   E = Wᵀ J W,   M⁻¹ = -(I - W Wᵀ) + W E⁻¹ Wᵀ,
+    W = blockdiag(U₁, …, U_m, I),   E = Wᵀ J W,   M⁻¹ = -(I - W Wᵀ) + W E⁻¹ Wᵀ
 
--I outside the span of W and an exact solve with E on it. When it is built its subspace makes steps
-until the bases pass the test of the paper, the turn of the leading `k` directions below `tol`, or
-`maxsteps` of them, and every update makes steps again at the new point, in one of the three ways of
-keeping the bases up: frozen, `every = 0`; a fixed number of steps, `tol = 0` with `cap = :keep`;
-or steps to the tolerance `tol`. For `nkroot!(F, J, z; precond=M)` of NKRoots.jl: `update!(M, z)`
-moves it to `z`, `ldiv!(out, M, v)` applies `M⁻¹`, and `gram(M, Q)` gives the root of the Gram
-matrix of the vectors `M⁻¹ qⱼ`. Every subspace step integrates the seeds k′ times. Every solve
-with E is checked: a relative residual above 1e-6 is an error, the sign of an E close to singular.
+M⁻¹ is -I outside the span of W and an exact solve with E on it. E is assembled with no
+integration beyond the subspace steps, from the images of the last step: it is exact for the bases
+before it. Built, its subspace steps until the bases pass the test of Lasagna et al. (2026), the
+turn of the leading `k` directions below `tol`, or `maxsteps` steps are made. Every update steps
+again at the new point, in one of the three ways of keeping the bases up: frozen, `every = 0`; a
+fixed number of steps, `tol = 0` with `cap = :keep`; or steps to the tolerance `tol`.
+
+It is the preconditioner of `nkroot!(F, J, z; precond=M)` of NKRoots.jl: `update!(M, z)` moves it
+to `z`, `ldiv!(out, M, v)` applies `M⁻¹`, and `gram(M, Q)` gives the triangular factor of the
+Gram matrix of the vectors `M⁻¹ qⱼ`. Every solve with E is checked: a relative residual above
+1e-6 is an error, the sign of an E close to singular.
 
 # Arguments
 - `L`: the tangent, called as `L(X, V, τ)` with a vector `V` of `k′` perturbations of every seed.
 - `F`: the right-hand side, called as `F(dX, X)`.
 - `z::ShootingVector`: the point, kept, not copied.
 - `k′::Int`: the number of directions per seed, required.
-- `S=nothing`, `dS=nothing`: the shift and its generator, as for the [`Jacobian`](@ref), for
-  relative periodic orbits.
+- `S=nothing`, `dS=nothing`: the shift, `S(X, s...)`, and its generator, `dS(dX, X, j)`, as for the
+  [`Jacobian`](@ref), for relative periodic orbits.
 - `k::Int=k′`: the number of leading directions that the test checks, from 1 to `k′`.
 - `tol::Real=1e-8`: the tolerance ε_sub on the sine of the turn of the bases, as
   [`maxturn`](@ref).
-- `maxsteps::Int=100`: the most subspace steps per update; `M.S.steps` holds the number of the
+- `maxsteps::Int=100`: the most subspace steps per update; `M.S.steps` holds the number made by the
   last one.
-- `sweeps::Int=0`: subspace steps from the random bases when it is built, before those of the
-  first update.
+- `sweeps::Int=0`: subspace steps from the random bases when it is built, before the steps to the
+  test.
 - `cap::Symbol=:error`: when the bases fail the test after `maxsteps` steps, `:error` throws an
   error and `:keep` keeps them.
 - `every::Int=1`: the Newton steps between two updates, 0 to update at the first only;
-  `M.updated` says, Newton step by Newton step, whether it was updated.
+  `M.updated` records, Newton step by Newton step, whether it was updated.
 """
 mutable struct Preconditioner{BT<:Subspace, FT, DST}
            S::BT                                         # the subspace iteration along the loop
@@ -159,10 +165,10 @@ end
     update!(M::Preconditioner, z) -> M
 
 Move `M` to the point `z`, as `nkroot!` of NKRoots.jl calls it at the start of every Newton
-iteration: its subspace moved to `z`, with steps there from the bases of the point before until
-they pass the test, at least one so that the images are those at `z`, and the coarse matrix
-assembled and factorised from the bases before the last step. At a Newton step between two
-updates, as `every` sets them, nothing changes and nothing is integrated.
+iteration: the subspace is moved to `z` and steps there from the bases of the point before until
+they pass the test, at least once so that the images are those at `z`, and E is assembled and
+factorised from the bases before the last step. At a Newton step between two updates, as `every`
+sets them, nothing changes and nothing is integrated.
 
 # Arguments
 - `M::Preconditioner`: the preconditioner, changed.
@@ -182,7 +188,8 @@ function NKRoots.update!(M::Preconditioner, z::ShootingVector)
     return _assemble!(M)
 end
 
-# E = Wᵀ A W from the bases before the last subspace step and their Galerkin blocks
+# E = Wᵀ J W from the bases before the last subspace step and their Galerkin blocks, as in the
+# header; rows and columns by seed, then the period T, then the shifts
 function _assemble!(M::Preconditioner)
     S  = M.S
     z  = S.z
@@ -201,9 +208,9 @@ function _assemble!(M::Preconditioner)
     X = copy(S.tmp)
     ns > 0 && S.S(tail(X), shifts(z)...)
 
-    # ---- f there, each in the row of the seed it reaches, and the generators at the end of the
-    #      last segment; f and the generators at the first seed ----
-    #      Fᵢ₊₁ = f(φ_τ(uᵢ)),   F₁ = f(S(s) φ_τ(u_m)),   Gⱼ = gⱼ(S(s) φ_τ(u_m)),
+    # ---- f at the end points, rolled into the row of the seed each reaches, and the generators
+    #      at the end of the last segment; f and the generators at the first seed ----
+    #      Fᵢ₊₁ = f(φ_τ(uᵢ)),   F₁ = f(w),   Gⱼ = gⱼ(w),   w = S(s) φ_τ(u_m),
     #      f₁ = f(u₁),   g₁ⱼ = gⱼ(u₁)
     F  = similar(X)
     fz = similar(z.X)
@@ -235,7 +242,7 @@ function _assemble!(M::Preconditioner)
     entry!(r, c, e) = (push!(Is, r); push!(Js, c); push!(Es, e))
 
     for i in 1:m
-        j = i % m + 1           # the seed segment i reaches
+        j = i % m + 1           # the seed that segment i reaches
 
         # ---- the Galerkin block Eᵢ = Uⱼᵀ ψᵢ Uᵢ, -I, and the period column ----
         for k₁ in 1:k′, k₂ in 1:k′
@@ -263,8 +270,7 @@ function _assemble!(M::Preconditioner)
 end
 
 # y = E⁻¹ g by the sparse QR factors, for a vector g or the columns of a matrix, with the relative
-# residual of every column checked against SOLVETOL. A larger one says that E is close to singular,
-# where no factorisation is accurate, and M⁻¹ would be wrong with no sign of it
+# residual of every column checked against SOLVETOL (see the header)
 function _solve(M::Preconditioner, g::AbstractVecOrMat)
     y = M.QR \ g
 
@@ -283,28 +289,28 @@ function _solve(M::Preconditioner, g::AbstractVecOrMat)
     return y
 end
 
-# the coefficients Wᵀ v: the coordinates of every seed in its basis, direction by direction, then
-# the period and the shifts. c[k₁] holds those of direction k₁ at every seed, on the host as a
-# vector, by vec(Array(…)) of what dots gives on the device: k′ copies of m numbers. The result
-# is a vector of the host
+# the coefficients g = Wᵀ v, on the host: the coordinates of every seed in its basis, then the
+# period and the shifts. c[k₁] holds those of direction k₁ at every seed, vec(Array(…)) of what
+# dots gives on the device: k′ copies of m numbers
 function _restrict(M::Preconditioner, v::ShootingVector)
     k′ = length(M.S.U)
     c  = [vec(Array(dots(M.S.U[k₁], v.X))) for k₁ in 1:k′]
 
-    # ---- seed by seed, as the rows of E ----
+    # ---- in the order of the rows of E, seed by seed ----
     return [vec(permutedims(reduce(hcat, c))); v.d]
 end
 
 """
     ldiv!(out, M::Preconditioner, v) -> out
 
-Minus `v` outside the span of the bases, and the solve with the coarse matrix on it,
+Apply the preconditioner: `v` with its sign changed outside the span of the bases, and the solve
+with E on it,
 
-    out = M⁻¹ v = -(I - W Wᵀ) v + W E⁻¹ Wᵀ v,
+    out = M⁻¹ v = -(I - W Wᵀ) v + W E⁻¹ Wᵀ v
 
 computed from the coefficients g = Wᵀ v and y = E⁻¹ g as
 
-    out = -v + W (g + y)  on the seeds,   out = y  on the period and the shifts.
+    out = -v + W (g + y) on the seeds,   out = y on the period and the shifts
 
 The solve is checked: a relative residual ‖E y - g‖/‖g‖ above 1e-6 is an error.
 
@@ -342,17 +348,18 @@ end
     gram(M::Preconditioner, Q) -> R
 
 The upper triangular `R` with `RᵀR` the Gram matrix of the vectors `M⁻¹ qⱼ`, from their
-coefficients alone, as `nkroot!` of NKRoots.jl asks for it,
+coefficients alone, as `nkroot!` of NKRoots.jl asks for it. With Γ = Wᵀ Q and Θ = E⁻¹ Γ, the two
+parts of each `M⁻¹ qⱼ`, outside the span of W and in it, are orthogonal and
 
-    RᵀR = (M⁻¹Q)ᵀ(M⁻¹Q) = I - ΓᵀΓ + ΘᵀΘ,   Γ = Wᵀ Q,   Θ = E⁻¹ Γ,
+    RᵀR = (M⁻¹Q)ᵀ(M⁻¹Q) = I - ΓᵀΓ + ΘᵀΘ
 
-the two parts of each M⁻¹ qⱼ being orthogonal. `R` comes from a QR of `[L; Θ]` with
-`LᵀL = I - ΓᵀΓ`, from the SVD of `Γ`, whose singular values are the cosines of the angles between
-the vectors and the span of `W`, so that the lengths of `Θ` are not squared.
+`R` is the factor of a QR of `[L; Θ]` with `LᵀL = I - ΓᵀΓ`, `L` from the SVD of `Γ`, whose
+singular values are the cosines of the angles between the vectors and the span of `W`: `I - ΓᵀΓ`
+is not formed, so its small eigenvalues are not lost.
 
 # Arguments
 - `M::Preconditioner`: the preconditioner.
-- `Q`: the orthonormal vectors `qⱼ`, a vector of [`ShootingVector`](@ref)s, the basis of the
+- `Q`: the vectors `qⱼ`, orthonormal, a vector of [`ShootingVector`](@ref)s: the basis of the
   Krylov space.
 """
 function NKRoots.gram(M::Preconditioner, Q)
