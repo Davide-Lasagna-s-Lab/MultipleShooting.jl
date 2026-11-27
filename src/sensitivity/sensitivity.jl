@@ -74,7 +74,7 @@ function _forced(Lp, S, z::ShootingVector)
 
     # ---- advanced over their segments by the forced tangent equation ----
     #      cᵢ = ∂φ_τ(uᵢ)/∂p
-    Lp(X, c.X, period(z)/nsegments(z))
+    Lp(X, c.X, times(z))
 
     # ---- the end of the last segment shifted ----
     #      c_m = S(s) ∂φ_τ(u_m)/∂p

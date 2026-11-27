@@ -29,8 +29,9 @@ first seed,
 
     rᵢ₊₁ = φ_τ(uᵢ) - uᵢ₊₁,   i = 1, …, m - 1,   r₁ = S(s) φ_τ(u_m) - u₁,   τ = T/m,
 
-and its scalar part is zero. One integration of the seeds per call. Where the period of `z` is
-not within `bounds` the residual is infinite, with no integration.
+and its scalar part is zero, with τᵢ = wᵢ T in place of τ for segments of unequal lengths
+([`times`](@ref)). One integration of the seeds per call. Where the period of `z` is not within
+`bounds` the residual is infinite, with no integration.
 
 # Arguments
 - `G`: the flow, called as `G(X, τ)`.
@@ -61,9 +62,9 @@ function (R::Residual)(r::ShootingVector, z::ShootingVector)
     # ---- a period out of bounds: an infinite residual ----
     R.bounds[1] < period(z) < R.bounds[2] || return r .= Inf
 
-    # ---- the length of a segment, the same for all ----
-    #      τ = T/m
-    τ = period(z)/nsegments(z)
+    # ---- the length of a segment, the same for all, or of each segment ----
+    #      τ = T/m,   or τᵢ = wᵢ T
+    τ = times(z)
 
     # ---- the unknowns: the seeds, and the scalars with them ----
     #      rᵢ = uᵢ,   r.d = z.d

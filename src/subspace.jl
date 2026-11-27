@@ -182,9 +182,9 @@ function iterate!(S::Subspace)
     z  = S.z
     k′ = length(S.V)
 
-    # ---- the length of a segment, the same for all ----
-    #      τ = T/m
-    τ = period(z)/nsegments(z)
+    # ---- the length of a segment, the same for all, or of each segment ----
+    #      τ = T/m,   or τᵢ = wᵢ T
+    τ = times(z)
 
     # ---- the bases before the step, kept in U: the preconditioner uses them with E, and the
     #      turn compares the new ones with them ----

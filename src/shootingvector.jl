@@ -14,7 +14,7 @@
 # lives.
 
 """
-    ShootingVector(X, d)
+    ShootingVector(X, d; w=nothing)
 
 The unknowns of multiple shooting, the seeds and the scalars,
 
@@ -22,9 +22,11 @@ The unknowns of multiple shooting, the seeds and the scalars,
 
 with the inner product ⟨z, z′⟩ = Σᵢ ⟨uᵢ, u′ᵢ⟩ + T T′ + Σⱼ sⱼ s′ⱼ: the sum of the products of
 the states, [`dots`](@ref) of the seeds, and the Euclidean one of the scalars, with no weight
-between the two. The m segments have the same length, T/m. `dot` takes the real part, `norm` is
-its square root. It broadcasts like a vector, `w .= α .* z .+ w`, on the seeds and the scalars
-separately.
+between the two. The m segments have the same length, T/m, or, with `w`, the lengths wᵢ T, fixed
+fractions of the period, so that a new period changes them all in proportion; [`times`](@ref)
+gives them. `dot` takes the real part, `norm` is its square root. It broadcasts like a vector,
+`y .= α .* z .+ y`, on the seeds and the scalars separately, and every vector made from it keeps
+its fractions.
 
 # Arguments
 - `X`: the seeds, m states, of a type with the methods that interface.jl asks of the seeds: an
@@ -32,12 +34,29 @@ separately.
 - `d::AbstractVector`: the scalars `[T, s₁, s₂, …]`, the period followed by one shift per
   continuous symmetry, `[T]` for a periodic orbit, converted to `Vector{Float64}`.
   [`period`](@ref), [`nshifts`](@ref) and [`shift`](@ref) read them.
+- `w=nothing`: the fractions of the period of the segments, one per seed, positive and adding up to
+  one, for segments of unequal lengths, as `nᵢ/N` for segments of nᵢ of the N steps of a
+  recurrence; equal segments when not given.
 """
 struct ShootingVector{A}
-    X::A               # the seeds
-    d::Vector{Float64} # the scalars: the period, then the shifts
+    X::A                                # the seeds
+    d::Vector{Float64}                  # the scalars: the period, then the shifts
+    w::Union{Nothing, Vector{Float64}}  # the fractions of the period of the segments, nothing
+                                        # for equal ones; shared, not copied, by the vectors
+                                        # made from this one
 
-    ShootingVector(X, d::AbstractVector) = new{typeof(X)}(X, convert(Vector{Float64}, d))
+    function ShootingVector(X, d::AbstractVector; w=nothing)
+        # ---- input checks ----
+        w === nothing || length(w) == nsegments(X) ||
+            throw(ArgumentError("one fraction per segment is needed, got $(length(w)) for " *
+                                "$(nsegments(X))"))
+        w === nothing || (all(>(0), w) && sum(w) ≈ 1) ||
+            throw(ArgumentError("the fractions of the segments must be positive and add up to one"))
+
+        return new{typeof(X)}(X,
+                              convert(Vector{Float64}, d),
+                              w === nothing ? nothing : convert(Vector{Float64}, w))
+    end
 end
 
 # the number of segments of the orbit, that of the seeds
@@ -92,10 +111,22 @@ takes, one number each, as `S(X, shifts(z)...)`.
 """
 shifts(z::ShootingVector) = view(z.d, 2:lastindex(z.d))
 
-# similar and copy act on the seeds and on the scalars; copy is deep
-Base.similar(z::ShootingVector) = ShootingVector(similar(z.X), similar(z.d))
+"""
+    times(z::ShootingVector) -> τ
 
-Base.copy(z::ShootingVector) = ShootingVector(copy(z.X), copy(z.d))
+The lengths of the segments, what the flow and the tangent take: the number T/m for equal
+segments, or the vector of the lengths wᵢ T for segments of unequal lengths, which add up to the
+period. A change of the period changes them all in proportion.
+
+# Arguments
+- `z::ShootingVector`: the unknowns.
+"""
+times(z::ShootingVector) = z.w === nothing ? period(z)/nsegments(z) : z.w .* period(z)
+
+# similar and copy act on the seeds and on the scalars, and keep the fractions; copy is deep
+Base.similar(z::ShootingVector) = ShootingVector(similar(z.X), similar(z.d); w=z.w)
+
+Base.copy(z::ShootingVector) = ShootingVector(copy(z.X), copy(z.d); w=z.w)
 
 # the inner product of the seeds, of their type, the real part for an array of complex states,
 # and the Euclidean one of the scalars

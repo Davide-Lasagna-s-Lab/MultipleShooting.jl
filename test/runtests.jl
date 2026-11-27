@@ -568,6 +568,56 @@ end
 end
 
 
+@testset "segments of unequal length               " begin
+    # ---- the orbit AB cut at the fractions w of its period: the seeds along it, one state at a time ----
+    T = period(ab)
+    w = [0.1, 0.4, 0.2, 0.3]
+    u = [ab.X[:, 1]]
+    for i in 1:3
+        push!(u, advance!(_rhs(Lz.G), copy(u[end]), w[i]*T, Lz.G.dt))
+    end
+    z = ShootingVector(Sliced(u), [T]; w=w)
+
+    # ---- the lengths, kept by every vector made from z, and the checks of the fractions ----
+    @test times(z) ≈ w .* T
+    @test times(ab) == T/4
+    @test similar(z).w === z.w && copy(z).w === z.w && (z .+ z).w === z.w
+    @test_throws ArgumentError ShootingVector(Sliced(u), [T]; w=w[1:3])
+    @test_throws ArgumentError ShootingVector(Sliced(u), [T]; w=2 .* w)
+
+    # ---- the residual vanishes on the orbit cut so, and the search from it perturbed closes it at the
+    #      same period ----
+    @test norm(R(similar(z), z)) < 1e-8
+    Random.seed!(3)
+    y = ShootingVector(Sliced([x .+ 1e-3 .* randn(3) for x in u]), [T]; w=w)
+    @test nkroot!(R, Jacobian(Lz.L, Lz.F, y; Lz.dG), y; krylov_dim=20, krylov_tol=1e-8, Δ=1.0, tol=1e-10,
+                  maxiter=50, verbose=false).status === :converged
+    @test period(y) ≈ T rtol=1e-8
+
+    # ---- the Jacobian off the orbit against central differences of the residual, the seeds and the
+    #      period, whose column is wᵢ times the derivative in τᵢ ----
+    flat(v)   = [reduce(vcat, v.X); v.d]
+    unflat(x) = ShootingVector(Sliced([x[3(i - 1) .+ (1:3)] for i in 1:4]), x[13:13]; w=w)
+    Random.seed!(4)
+    p = ShootingVector(Sliced([x .+ 1e-2 .* randn(3) for x in u]), [T]; w=w)
+    J = Jacobian(Lz.L, Lz.F, p; Lz.dG)
+    e(k) = unflat([1.0*(l == k) for l in 1:13])
+    A = reduce(hcat, [flat(J*e(k)) for k in 1:13])
+    D = reduce(hcat, [(flat(R(similar(p), p .+ 1e-6 .* e(k))) .- flat(R(similar(p), p .- 1e-6 .* e(k)))) ./ 2e-6
+                      for k in 1:13])
+    @test norm(A[1:12, :] - D[1:12, :]) < 1e-6*norm(A[1:12, :])
+
+    # ---- the coarse matrix of the preconditioner is Wᵀ A W, the period column with the fractions ----
+    Random.seed!(1)
+    M  = Preconditioner(Lz.L, Lz.F, p; k′=2)
+    Jf = Jacobian(Lz.L, Lz.F, p)
+    W  = [unflat([zeros(3(i - 1)); M.S.U[a][i]; zeros(3(4 - i)); 0.0]) for i in 1:4 for a in 1:2]
+    push!(W, unflat([zeros(12); 1.0]))
+    E  = reduce(hcat, [MultipleShooting._restrict(M, Jf*v) for v in W])
+    @test norm(Matrix(M.E) - E) < 1e-12*norm(E)
+end
+
+
 @testset "inner product of the states               " begin
     Random.seed!(4)
     flat(v) = [vec(v.X); v.d]

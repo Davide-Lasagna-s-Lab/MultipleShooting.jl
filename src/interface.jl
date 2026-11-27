@@ -40,7 +40,10 @@
 #     dG(X, V, τ)      the derivative of the flow in τ: X advanced, and V the derivative in τ of
 #                      the end points
 #
-# and uses no value they return. Each part of a search takes the objects it calls, and no other:
+# and uses no value they return. τ is the length of a segment, a number, or for segments of unequal
+# lengths (the fractions w of ShootingVector) a vector of the lengths, one per state, which the flow,
+# the tangent, the forced tangent and the derivative of the flow then take state by state. Each part
+# of a search takes the objects it calls, and no other:
 #
 #     Residual(G; S)                       the flow, and the shift
 #     Jacobian(L, F, z; S, dS, dG)         the tangent with one V like X, the right-hand side,

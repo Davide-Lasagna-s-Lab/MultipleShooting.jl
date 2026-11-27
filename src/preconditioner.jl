@@ -250,7 +250,7 @@ function _assemble!(M::Preconditioner)
         end
         for k₁ in 1:k′
             entry!(seed(i)[k₁], seed(i)[k₁], -1.0)
-            entry!(seed(j)[k₁], T, pf[k₁][j]/m)
+            entry!(seed(j)[k₁], T, z.w === nothing ? pf[k₁][j]/m : pf[k₁][j]*z.w[i])
         end
     end
 

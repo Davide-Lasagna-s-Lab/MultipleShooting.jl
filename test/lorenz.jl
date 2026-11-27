@@ -126,3 +126,14 @@ _stretched(x::Lorenz, τ) =
     (foreach((x, v) -> (v .= 0; advance!(_rhs(dG), _stretched(dG, τ), x, v, τ, dG.dt)), X, V); V)
 
 (F::Lorenz{:F})(dX::Sliced, X::Sliced) = (foreach((f, x) -> lorenz_rhs!(f, x, F.ρ), dX, X); dX)
+
+# ---- a Sliced with a time per state, the segments of unequal lengths ----
+(G::Lorenz{:G})(X::Sliced, τ::AbstractVector) = (foreach((x, t) -> advance!(_rhs(G), x, t, G.dt), X, τ); X)
+
+(L::Lorenz{:L})(X::Sliced, V::Sliced, τ::AbstractVector) =
+    (foreach((x, v, t) -> advance!(_rhs(L), _lin(L), x, v, t, L.dt), X, V, τ); V)
+
+(L::Lorenz{:L})(X::Sliced, V::AbstractVector{<:Sliced}, τ::AbstractVector) = directions!(L, X, V, τ)
+
+(dG::Lorenz{:dG})(X::Sliced, V::Sliced, τ::AbstractVector) =
+    (foreach((x, v, t) -> (v .= 0; advance!(_rhs(dG), _stretched(dG, t), x, v, t, dG.dt)), X, V, τ); V)

@@ -37,9 +37,9 @@ right-hand side `F`: `mul!(out, J, v)` or `J*v` applies it to v = (v₁, …, v_
     (Jv)₁   = S(s) ψ_m v_m - v₁ + δτ S(s) ∂φ_τ(u_m)/∂τ + Σⱼ δsⱼ gⱼ(w),   w = S(s) φ_τ(u_m),
     (Jv)_T  = ⟨f(u₁), v₁⟩,   (Jv)_sⱼ = ⟨gⱼ(u₁), v₁⟩,
 
-with δτ = δT/m the change of the length τ = T/m of a segment, ψᵢ the tangent maps, by the tangent
-equation along the seeds, one integration per product, and the scalar rows the phase
-conditions. Building it integrates the seeds once, by the tangent with no perturbation, or by
+with δτ = δT/m the change of the length τ = T/m of a segment, or αᵢ δT for segments of unequal
+lengths τᵢ = αᵢ T, the fractions of [`times`](@ref), ψᵢ the tangent maps, by the tangent equation
+along the seeds, one integration per product, and the scalar rows the phase conditions. Building it integrates the seeds once, by the tangent with no perturbation, or by
 `dG`, which also gives the column of the period.
 
 # Arguments
@@ -116,7 +116,7 @@ of the segments and at the first seed, with one integration of the seeds. A meth
 """
 function NKRoots.update!(J::Jacobian, z::ShootingVector)
     m   = nsegments(z)
-    τ   = period(z)/m
+    τ   = times(z)
     J.z = z
 
     # ---- the end points, row i φ_τ(uᵢ), and their derivatives in τ, the column of the period:
@@ -131,8 +131,12 @@ function NKRoots.update!(J::Jacobian, z::ShootingVector)
         J.dG(J.tmp, J.dXdT, τ)
     end
 
-    # ---- each over m, since τ = T/m ----
-    J.dXdT ./= m
+    # ---- each over m, since τ = T/m, or times its fraction, since τᵢ = wᵢ T ----
+    if z.w === nothing
+        J.dXdT ./= m
+    else
+        J.dXdT .*= coefficients(J.dXdT, z.w)
+    end
 
     # ---- the end of the last segment shifted, and its derivative with it ----
     if nshifts(z) > 0
@@ -157,7 +161,7 @@ NKRoots.update!(J::Jacobian, z::ShootingVector, r::ShootingVector) = NKRoots.upd
 # out = J v. One integration of the seeds per product (the tangent L, in place on the device of
 # the seeds); tmp is the only work batch, and the phase rows are dots on the host.
 function LinearAlgebra.mul!(out::ShootingVector, J::Jacobian, v::ShootingVector)
-    τ  = period(J.z)/nsegments(J.z)
+    τ  = times(J.z)
     δT = period(v)
 
     # ---- the seeds and the vector ----
